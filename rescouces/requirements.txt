@@ -1,0 +1,7 @@
+# AGL_Server 核心服务端依赖说明
+# 服务端核心 (server.py / proto_bridge.py / auto_responder.py) 仅依赖 Python 3.10+ 64位 标准库。
+# tolua.dll 动态链接库通过 ctypes 直接调用，因此无需安装额外的第三方 Python 包即可启动运行。
+# 
+# 运行环境要求:
+# - Python >= 3.10 (必须为 64 位 x86_64 版本，以匹配 64 位 tolua.dll)
+# - Windows 10 / 11 / Server 2016+

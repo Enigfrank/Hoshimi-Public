@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AGL · GM 管理</title>
+  <link rel="stylesheet" href="/gm/style.css">
+  <script defer src="/gm/app.js"></script>
+</head>
+<body>
+<div class="container">
+  <svg class="icon-defs" width="0" height="0" aria-hidden="true">
+    <defs>
+      <symbol id="icon-account" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+        <path d="M3 10h18M8 4v6"></path>
+      </symbol>
+      <symbol id="icon-command" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"></path>
+      </symbol>
+      <symbol id="icon-item" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="7"></circle>
+        <path d="m20 20-4-4"></path>
+      </symbol>
+      <symbol id="icon-progress" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 20h18M6 16V9M11 16V5M16 16v-4M21 16v-7"></path>
+      </symbol>
+      <symbol id="icon-backup" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <ellipse cx="12" cy="6" rx="8" ry="3"></ellipse>
+        <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"></path>
+        <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"></path>
+      </symbol>
+      <symbol id="icon-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+        <path d="m3 7 9 6 9-6"></path>
+      </symbol>
+      <symbol id="icon-notice" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 11v2a1 1 0 0 0 1 1h3l4 4V6L7 10H4a1 1 0 0 0-1 1z"></path>
+        <path d="M16 8a5 5 0 0 1 0 8"></path>
+      </symbol>
+      <symbol id="icon-audit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+        <path d="M14 3v6h6M9 13h6M9 17h4"></path>
+      </symbol>
+      <symbol id="icon-protocol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="2"></circle>
+        <path d="M12 4a8 8 0 0 1 8 8M12 20a8 8 0 0 1-8-8"></path>
+        <path d="M4.9 7.5a10 10 0 0 1 0 9M19.1 7.5a10 10 0 0 0 0 9"></path>
+      </symbol>
+    </defs>
+  </svg>
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">AGL</div>
+      <h1 class="sidebar-title">GM 管理</h1>
+    </div>
+    <nav class="nav-menu" aria-label="管理功能">
+      <button type="button" class="nav-item active" data-tab="overview">
+        <svg class="nav-icon" aria-hidden="true"><use href="#icon-account"></use></svg>
+        <span class="nav-text">账号数据</span>
+      </button>
+      <button type="button" class="nav-item" data-tab="commands">
+        <svg class="nav-icon" aria-hidden="true"><use href="#icon-command"></use></svg>
+        <span class="nav-text">GM 指令</span>
+      </button>
+      <button type="button" class="nav-item" data-tab="items">
+        <svg class="nav-icon" aria-hidden="true"><use href="#icon-item"></use></svg>
+        <span class="nav-text">物品查阅</span>
+      </button>
+      <button type="button" class="nav-item" data-tab="progress">
+        <svg class="nav-icon" aria-hidden="true"><use href="#icon-progress"></use></svg>
+        <span class="nav-text">养成进度</span>
+      </button>
+      <button type="button" class="nav-item" data-tab="backups">
+        <svg class="nav-icon" aria-hidden="true"><use href="#icon-backup"></use></svg>
+        <span class="nav-text">存档备份</span>
+      </button>
+      <button type="button" class="nav-item" data-tab="mail">
+        <svg class="nav-icon" aria-hidden="true"><use href="#icon-mail"></use></svg>
+        <span class="nav-text">邮件</span>
+      </button>
+      <button type="button" class="nav-item" data-tab="notices">
+        <svg class="nav-icon" aria-hidden="true"><use href="#icon-notice"></use></svg>
+        <span class="nav-text">公告</span>
+      </button>
+      <button type="button" class="nav-item" data-tab="audit">
+        <svg class="nav-icon" aria-hidden="true"><use href="#icon-audit"></use></svg>
+        <span class="nav-text">操作记录</span>
+      </button>
+      <button type="button" class="nav-item" data-tab="protocols">
+        <svg class="nav-icon" aria-hidden="true"><use href="#icon-protocol"></use></svg>
+        <span class="nav-text">协议覆盖</span>
+      </button>
+    </nav>
+  </aside>
+
+  <main class="main-content">
+    <header class="top-bar">
+      <div class="account-selector">
+        <label class="selector-label">当前账号</label>
+        <select id="account" class="account-select"></select>
+      </div>
+      <div class="account-info">
+        <p id="summary" class="account-summary"></p>
+      </div>
+      <button id="refresh" class="btn-refresh" type="button">
+        <span class="refresh-icon">↻</span>
+        刷新数据
+      </button>
+    </header>
+
+    <div id="status" class="status-bar" role="status" aria-live="polite">正在加载数据…</div>
+
+    <section id="overview" class="panel">
+      <div class="panel-header">
+        <h2 class="panel-title">账号数据</h2>
+        <p class="panel-desc">余额、库存、角色、编队、任务和关卡记录均读取当前存档</p>
+      </div>
+      <div class="panel-body">
+        <div class="field-selector">
+          <label class="field-label">
+            数据类别
+            <select id="data-field" class="field-select">
+              <option value="currencies">全部货币</option>
+              <option value="materials">材料库存</option>
+              <option value="heroes">角色及皮肤</option>
+              <option value="servants">钥从库存</option>
+              <option value="teams">编队与方案</option>
+              <option value="battle_progress">关卡进度</option>
+              <option value="tasks">任务进度</option>
+              <option value="decorations">头像、装饰与场景</option>
+              <option value="sign">签到记录</option>
+              <option value="chapter_v2">剧情事件地图</option>
+            </select>
+          </label>
+        </div>
+        <pre id="account-data" class="data-display"></pre>
+        <div class="account-actions">
+          <button id="unlock" type="button" class="btn-secondary">补齐 Developer 解锁</button>
+          <div class="reset-actions">
+            <button type="button" class="btn-secondary" data-activity-reset="core">重置迭代校验</button>
+            <div class="activity-switch">
+              <label class="field-label">
+                梦境周期
+                <select id="dream-area" class="field-select"></select>
+              </label>
+              <label class="field-label">
+                切换 BOSS
+                <select id="dream-boss" class="field-select"></select>
+              </label>
+              <button id="dream-switch" type="button" class="btn-secondary">切换 BOSS</button>
+            </div>
+            <button type="button" class="btn-secondary" data-activity-reset="polyhedron">重置多维变量</button>
+          </div>
+        </div>
+        <form id="period-form" class="period-form">
+          <h3 class="reference-title">全服刷新周期</h3>
+          <p class="panel-desc">单位为小时（1–8760）。仅更改的玩法重新计时，不立即清空进度；到期重置当期进度与领奖记录，保留永久成长。</p>
+          <label class="field-label">梦境再构<input name="dream" type="number" min="1" max="8760" required class="form-input"></label>
+          <label class="field-label">迭代校验<input name="core" type="number" min="1" max="8760" required class="form-input"></label>
+          <label class="field-label">多维变量<input name="polyhedron" type="number" min="1" max="8760" required class="form-input"></label>
+          <label class="field-label">神经矩阵·并发序列<input name="neural" type="number" min="1" max="8760" required class="form-input"></label>
+          <p id="period-next" class="panel-desc"></p>
+          <button type="submit" class="btn-primary">保存全服周期</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="commands" class="panel" hidden>
+      <div class="panel-header">
+        <h2 class="panel-title">GM 指令</h2>
+        <p class="panel-desc">设置类指令直接设为目标值,give 指令增加库存。成功后立即保存并同步在线客户端</p>
+      </div>
+      <div class="panel-body">
+        <form id="command-form" class="command-form">
+          <div class="form-group">
+            <label class="form-label">指令</label>
+            <div class="input-group">
+              <input name="command" class="form-input" placeholder="/give 1 100" required maxlength="200">
+              <button type="submit" class="btn-primary">执行指令</button>
+            </div>
+          </div>
+        </form>
+        <div class="command-reference">
+          <h3 class="reference-title">指令参考</h3>
+          <div class="reference-grid">
+            <div class="reference-item">
+              <div class="reference-cmd">/give 物品ID 数量</div>
+              <div class="reference-desc">发放有效物品</div>
+            </div>
+            <div class="reference-item">
+              <div class="reference-cmd">/flower 数量</div>
+              <div class="reference-desc">设置移转之花合计</div>
+            </div>
+            <div class="reference-item">
+              <div class="reference-cmd">/diamond 数量</div>
+              <div class="reference-desc">设置移转之辉</div>
+            </div>
+            <div class="reference-item">
+              <div class="reference-cmd">/gold 数量</div>
+              <div class="reference-desc">设置金币</div>
+            </div>
+            <div class="reference-item">
+              <div class="reference-cmd">/stamina 数量</div>
+              <div class="reference-desc">设置体力</div>
+            </div>
+            <div class="reference-item">
+              <div class="reference-cmd">/level 1–100</div>
+              <div class="reference-desc">设置等级</div>
+            </div>
+            <div class="reference-item">
+              <div class="reference-cmd">/help</div>
+              <div class="reference-desc">查看指令说明</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="items" class="panel" hidden>
+      <div class="panel-header">
+        <h2 class="panel-title">物品查阅</h2>
+        <a href="/gm/api/items.csv" download="ITEM_IDS.csv" class="btn-link">下载完整 CSV</a>
+      </div>
+      <div class="panel-body">
+        <form id="search-form" class="search-form">
+          <div class="form-group">
+            <label class="form-label">编号、名称或类型</label>
+            <div class="input-group">
+              <input id="item-search" class="form-input" placeholder="如:移转之花、头像、31">
+              <button type="submit" class="btn-primary">查询</button>
+            </div>
+          </div>
+        </form>
+        <p id="item-total" class="item-total"></p>
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>名称</th>
+                <th>类型</th>
+                <th>说明</th>
+              </tr>
+            </thead>
+            <tbody id="item-rows"></tbody>
+          </table>
+        </div>
+        <div class="pagination">
+          <button id="prev" class="btn-pagination" type="button">上一页</button>
+          <span id="page" class="page-info"></span>
+          <button id="next" class="btn-pagination" type="button">下一页</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="mail" class="panel" hidden>
+      <div class="panel-header">
+        <h2 class="panel-title">发送邮件</h2>
+      </div>
+      <div class="panel-body">
+        <form id="mail-form" class="standard-form">
+          <div class="form-group">
+            <label class="form-label">收件范围</label>
+            <select name="scope" class="form-select">
+              <option value="current">当前账号</option>
+              <option value="all">全部现有账号</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">标题</label>
+            <input name="title" class="form-input" required maxlength="100">
+          </div>
+          <div class="form-group">
+            <label class="form-label">正文</label>
+            <textarea name="content" class="form-textarea" required maxlength="20000" rows="5"></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">发件人</label>
+              <input name="sender" class="form-input" value="GM系统" required maxlength="100">
+            </div>
+            <div class="form-group">
+              <label class="form-label">有效期(天)</label>
+              <input name="days" class="form-input" type="number" min="1" max="3650" value="30" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">附件(每行填写:物品ID 数量,可留空)</label>
+            <textarea name="rewards" class="form-textarea" rows="3" placeholder="1 100&#10;2 5000"></textarea>
+          </div>
+          <button type="submit" class="btn-primary">发送邮件</button>
+        </form>
+        <div class="mail-preview">
+          <h3 class="preview-title">当前账号邮件</h3>
+          <pre id="mail-data" class="data-display"></pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="notices" class="panel" hidden>
+      <div class="panel-header">
+        <h2 class="panel-title">公告管理</h2>
+      </div>
+      <div class="panel-body">
+        <form id="notice-form" class="standard-form">
+          <input name="id" type="hidden" value="0">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">类型</label>
+              <select name="type" class="form-select">
+                <option value="101">公告</option>
+                <option value="102">活动</option>
+                <option value="104">系统通知</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">标题</label>
+              <input name="title" class="form-input" required maxlength="100">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">正文</label>
+            <textarea name="content" class="form-textarea" required maxlength="20000" rows="5"></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">开始时间</label>
+              <input name="start" class="form-input" type="datetime-local" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">结束时间</label>
+              <input name="end" class="form-input" type="datetime-local" required>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">保存公告</button>
+            <button id="new-notice" type="button" class="btn-secondary">新建公告</button>
+          </div>
+        </form>
+        <div class="notice-list-container">
+          <h3 class="list-title">公告列表</h3>
+          <div id="notice-list" class="notice-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="audit" class="panel" hidden>
+      <div class="panel-header">
+        <h2 class="panel-title">操作记录</h2>
+      </div>
+      <div class="panel-body">
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>操作</th>
+                <th>UID</th>
+                <th>内容</th>
+              </tr>
+            </thead>
+            <tbody id="audit-rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="progress" class="panel" hidden>
+      <div class="panel-header">
+        <h2 class="panel-title">养成进度</h2>
+        <p class="panel-desc">常驻玩法与主要养成的当前存档摘要，切换账号后自动重读</p>
+      </div>
+      <div class="panel-body">
+        <div class="metric-row" id="progress-metrics"></div>
+        <pre id="progress-data" class="data-display"></pre>
+      </div>
+    </section>
+
+    <section id="backups" class="panel" hidden>
+      <div class="panel-header">
+        <h2 class="panel-title">存档备份</h2>
+        <p class="panel-desc">回滚会先自动备份当前状态，恢复后立即同步在线客户端</p>
+      </div>
+      <div class="panel-body">
+        <form id="backup-form" class="standard-form">
+          <div class="form-group">
+            <label class="form-label" for="backup-note">备注</label>
+            <input id="backup-note" name="note" class="form-input" maxlength="100" placeholder="如：删号前存档">
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">立即备份当前账号</button>
+          </div>
+        </form>
+        <div class="notice-list-container">
+          <h3 class="list-title">历史备份</h3>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>备注</th>
+                  <th>昵称</th>
+                  <th>等级</th>
+                  <th>大小</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="backup-rows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="protocols" class="panel" hidden>
+      <div class="panel-header">
+        <h2 class="panel-title">协议覆盖</h2>
+        <p class="panel-desc">兜底应答表示客户端请求过但本服没有业务实现，命中次数跨重启累计</p>
+      </div>
+      <div class="panel-body">
+        <div class="metric-row" id="protocol-metrics"></div>
+        <h3 class="list-title">兜底应答明细</h3>
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>CS 协议</th>
+                <th>命中次数</th>
+                <th>最近命中</th>
+              </tr>
+            </thead>
+            <tbody id="protocol-rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+</body>
+</html>
