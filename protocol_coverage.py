@@ -272,7 +272,9 @@ def build_report(map_path=DEFAULT_MAP_PATH) -> str:
     hits = {cmd: row for cmd, row in hits.items() if cmd in index_keys}
 
     implemented_ids = sorted(int(key) for key in index if int(key) in implemented)
-    fallback_ids = sorted(int(key) for key in index if key in hits)
+    # 已实现指令即使历史日志中有兜底命中，也不再属于当前缺口。
+    fallback_ids = sorted(int(key) for key in index
+                          if key in hits and int(key) not in implemented)
     untouched = sorted(int(key) for key in index
                        if int(key) not in implemented and key not in hits)
 
@@ -287,12 +289,12 @@ def build_report(map_path=DEFAULT_MAP_PATH) -> str:
              '- **静态引用**：编号只在源码文字中出现（含注释与文档），不等于有业务处理。', '',
              '兜底应答多数协议返回 `result=1`，仅 14042、32054 等少数协议返回成功结果；'
              '无论哪种情况，业务数据都是空的。命中次数取自 `data/gm/protocol_fallback.jsonl`，'
-             '因此跨进程重启累计。', '',
+             '因此跨进程重启累计；已实现指令的历史命中不计入当前缺口。', '',
              '## 汇总', '', '| 指标 | 数值 |', '|---|---|',
              f'| CS 协议总数 | {len(index)} |',
              f'| 业务实现 | {len(implemented_ids)} |',
              f'| 兜底应答（运行期实测命中） | {len(fallback_ids)} |',
-             f'| 兜底应答累计请求次数 | {summary["total"]} |',
+             f'| 兜底应答累计请求次数 | {sum(hits[str(cmd)]["hits"] for cmd in fallback_ids)} |',
              f'| 未被实现也未被请求 | {len(untouched)} |',
              f'| 源码中出现过的协议号 | {len([c for c in referenced if c in {int(k) for k in index}])} |',
              '', '## 业务实现清单', '', '| CS 协议 | 字段 | 标签 |', '|---|---|---|']
