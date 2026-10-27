@@ -15,12 +15,13 @@ def training_catalog() -> dict:
             'HeroAstrolabeCfg','WeaponModuleCfg','EquipMaterialCfg','ConditionCfg','HeroRecordCfg',
             'HeroStarUpTemplateCfg','HeroStarSkillCfg','ComboSkillCfg','ComboSkillLevelCfg',
             'HeroTrustCfg','HeroTrustLevelCfg','HeroRelationNetCfg','HeroRelationUpgradeCfg',
-            'HeroRelationUpgradeConditionCfg','HeroRelationCfg'}) do
+            'HeroRelationUpgradeConditionCfg','HeroRelationCfg','HeroAnedoteCfg'}) do
             local c=require(name);local rows={}
             for _,id in ipairs(c.all) do
                 local v=c[id]
                 if name=='WeaponModuleCfg' then rows[tostring(id)]={cost=v.cost,condition=v.condition,source=v.source}
                 elseif name=='HeroRecordCfg' then rows[tostring(id)]={hero_id=v.hero_id,gift_like_id1=v.gift_like_id1}
+                elseif name=='HeroAnedoteCfg' then rows[tostring(id)]={id=v.id,reward=v.reward}
                 else rows[tostring(id)]=v end
             end
             r[name]=rows
@@ -31,7 +32,8 @@ def training_catalog() -> dict:
             'base_exp_weapon_servant','exclusive_skill_talent_num_max','exclusive_skill_use_num_max',
             'exclusive_skill_talent_strengthen_cost','hero_trust_exchange_need',
             'hero_trust_favor_gift_add_exp','hero_trust_exchange_up_limit',
-            'weapon_module_break_return','unlock_hero_need','gift_value'}) do r.settings[k]=c[k].value end
+            'weapon_module_break_return','unlock_hero_need','gift_value',
+            'hero_anecdote_unlock_condition'}) do r.settings[k]=c[k].value end
         r.settings.love_level_max=require('GameDisplayCfg').hero_love_level_max.value[1]
         local h=require('HeroCfg')
         for _,id in ipairs(h.all) do local v=h[id]
