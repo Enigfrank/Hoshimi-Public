@@ -157,11 +157,13 @@ def battle_progress_pushes(user: dict, stage_type: int) -> list[tuple]:
     """结算只同步当前玩法进度，避免重新初始化任务、排期和编队。"""
     from battle_progress import story_progress
     from equip_exploration import exploration_pushes
+    from hero_oath import assignment_pushes
     from hero_training_progress import training_battle_pushes
     if stage_type == 61:
         from activity_pt_scroll import activity_pt_scroll_pushes
         data = activity_pt_scroll_pushes(user)
         data += training_battle_pushes(user)
+        data += assignment_pushes(user)
         return [(cmd, encode_message(cmd, values), 0, 0.0) for cmd, values in data]
     catalog = client_catalog()
     if stage_type in (1, 601):
@@ -212,4 +214,6 @@ def battle_progress_pushes(user: dict, stage_type: int) -> list[tuple]:
                     35: {44023}, 1003: {55001}, 67: {75009}}.get(stage_type, set())
         data = [(cmd, value) for cmd, value in challenge_pushes(user) if cmd in commands]
     data += training_battle_pushes(user)
+    # 战斗胜利会增加角色熟练度与出战次数，誓约任务面板需要同步最新进度。
+    data += assignment_pushes(user)
     return [(cmd, encode_message(cmd, values), 0, 0.0) for cmd, values in data]

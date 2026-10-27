@@ -148,34 +148,33 @@ def oath_level(user: dict, oath_id: int) -> int:
     return min(level, oath_catalog()['max_level'])
 
 
-def assignment_info(user: dict, oath_id: int) -> dict:
-    """返回单个誓约的任务进度，字段与客户端 ``assignment_info`` 一致。
+def assignment_info(user: dict, task: dict) -> dict:
+    """返回单个誓约任务的 ``sc_14503.assignment_info`` 记录。
 
-    ``progress`` 是该任务由存档事实算出的实际进度，客户端用它显示
-    ``1/3`` 之类的分段进度，因此必须下发真实进度而不是提交标志；
-    ``complete_flag`` 单独表示是否已提交。
+    ``assignment_info`` 是逐任务记录，``id`` 为任务编号；客户端
+    ``OathAssignmentData.UpdateOathAssignment`` 以该编号为键保存，
+    任务面板再用 ``GetOathAssignmentByID(task_id)`` 读取。
+    ``progress`` 是该任务由存档事实算出的实际进度，``complete_flag``
+    单独表示是否已提交。
     """
-    rows = []
-    for task in oath_tasks(oath_id):
-        saved = task_saved(user, task)
-        rows.append({'id': task['id'],
-                     'progress': task['need'] if saved['complete_flag'] else min(
-                         task['need'], task_progress(user, task)),
-                     'complete_flag': saved['complete_flag'],
-                     'expired_timestamp': 0})
-    return {'id': oath_id, 'progress': rows}
+    saved = task_saved(user, task)
+    return {'id': task['id'],
+            'progress': task['need'] if saved['complete_flag'] else min(
+                task['need'], task_progress(user, task)),
+            'complete_flag': saved['complete_flag'],
+            'expired_timestamp': 0}
 
 
 def assignment_data(user: dict) -> dict:
     """下发全部誓约任务进度，``send_type=0`` 表示操作后触发的全量刷新。
 
-    ``sc_14503.assignment_list`` 是 ``map<hero_id, assignment_info>>`` 而不是
-    repeated 字段：客户端 ``OathAssignmentAction.OnAssignment`` 用
-    ``pairs(assignment_list)`` 遍历并以角色编号取值，序列化成列表会被 protobuf
-    按标量校验拒绝，因此必须下发以角色编号为键的字典。
+    ``sc_14503.assignment_list`` 是 repeated ``assignment_info``，每个元素
+    对应一个任务，字段 ``id`` 是任务编号。不能按角色聚合成字典：编码器对
+    repeated 字段按数组迭代，字典会得到空列表，客户端就会把所有任务显示为
+    0 进度。
     """
-    return {'assignment_list': {str(oath_id): assignment_info(user, int(oath_id))
-                                for oath_id in sorted(oath_catalog()['rows'], key=int)},
+    return {'assignment_list': [assignment_info(user, task)
+                                for task in oath_catalog()['tasks']],
             'send_type': 0}
 
 
