@@ -1053,10 +1053,16 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 user = deepcopy(session.user_data)
                 values = hero_request(user, cmd, decode_message(cmd, pb_payload))
                 resp_pb = encode_message(resp_cmd, values)
+                if cmd == 71108 and values.get('reward_list'):
+                    # 逸闻奖励弹窗不更新碎片缓存，首领奖后同步权威库存。
+                    pieces = [{'id': int(i), 'num': n}
+                              for i, n in user.get('hero_pieces', {}).items()]
+                    resp_extra = [(14019, encode_message(14019, {'piece_list': pieces}), 0, 0.0)]
                 get_user_manager().save_user(user)
                 session.user_data = user
             except ValueError as error:
                 print(f'[角色操作拒绝] {error}')
+                resp_extra = None
                 resp_pb = encode_message(resp_cmd, {'result': []} if cmd == 13026 else {'result': 1})
         elif cmd in OATH_COMMANDS:
             from copy import deepcopy
