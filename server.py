@@ -44,7 +44,7 @@ from profile_data import profile_data, profile_request, PROFILE_COMMANDS
 from poster_touch import save_poster_touch
 from skin_scene_data import normalize_skin_selections, skin_available
 from hero_preferences import hero_info_data, hero_request, HERO_COMMANDS
-from hero_oath import OATH_COMMANDS, oath_pushes, oath_request
+from hero_oath import OATH_COMMANDS, assignment_pushes, oath_pushes, oath_request
 from hero_training import TRAINING_COMMANDS, training_request, training_pushes
 from backhome_requests import BACKHOME_COMMANDS, BACKHOME_ONEWAY_COMMANDS, backhome_request
 from backhome_data import backhome_state
@@ -795,6 +795,11 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                         if user != session.user_data:
                             get_user_manager().save_user(user)
                             session.user_data = user
+                            # 大厅触摸会改变誓约任务进度，立即推送 14503，
+                            # 避免客户端继续显示交互前的缓存进度。
+                            frames = b''.join(pack_ystcp(c, encode_message(c, v))
+                                              for c, v in assignment_pushes(user))
+                            session.writer.write(frames)
                 except ValueError as error:
                     print(f'[大厅触摸上报拒绝] {error}')
             return None
@@ -1048,12 +1053,19 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 user = deepcopy(session.user_data)
                 values = hero_request(user, cmd, decode_message(cmd, pb_payload))
                 resp_pb = encode_message(resp_cmd, values)
+                if cmd == 71108 and values.get('reward_list'):
+                    # 逸闻奖励弹窗不更新碎片缓存，首领奖后同步权威库存。
+                    pieces = [{'id': int(i), 'num': n}
+                              for i, n in user.get('hero_pieces', {}).items()]
+                    resp_extra = [(14019, encode_message(14019, {'piece_list': pieces}), 0, 0.0)]
                 get_user_manager().save_user(user)
                 session.user_data = user
             except ValueError as error:
                 print(f'[角色操作拒绝] {error}')
+                resp_extra = None
                 resp_pb = encode_message(resp_cmd, {'result': []} if cmd == 13026 else {'result': 1})
         elif cmd in OATH_COMMANDS:
+            from copy import deepcopy
             resp_cmd = cmd + 1
             try:
                 if not session or not session.user_data:
@@ -1627,8 +1639,8 @@ async def _delayed_send(session: Optional[ClientSession], writer: asyncio.Stream
             return
         writer.write(frame)
         await writer.drain()
-        # Only log sizable frames - the many small rolling no-op frames
-        # (sc_32055 keepalive etc.) would otherwise flood the console.
+        # Only log sizable frames - the many small interaction acknowledgement
+        # frames (sc_32055 etc.) would otherwise flood the console.
         if len(frame) >= 512:
             print(f"[服务端延迟推送] 延迟 {delay} 秒后已推送帧（{len(frame)} 字节）")
     except asyncio.CancelledError:

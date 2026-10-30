@@ -1,4 +1,4 @@
-"""个人名片、看板、剧情阅读和大厅设置的保存与恢复。"""
+"""个人名片、看板、剧情阅读、大厅设置与角色语音校验。"""
 
 from copy import deepcopy
 from datetime import date
@@ -18,7 +18,7 @@ PROFILE_FIELDS = {
     32108: ('poster_background_id', 'poster_background_id'),
 }
 PROFILE_COMMANDS = set(PROFILE_FIELDS) | {
-    12002, 12026, 12030, 23012, 32038, 32122, 32124, 32126, 32128, 32130, 32132, 32134, 32052, 32058,
+    12002, 12026, 12030, 23012, 32038, 32044, 32122, 32124, 32126, 32128, 32130, 32132, 32134, 32052, 32058,
 }
 
 
@@ -81,13 +81,22 @@ def profile_data(user: dict) -> dict:
 
 
 def profile_request(user: dict, command: int, request: dict, rewards: list | None = None) -> dict:
-    """处理真实个人修改协议；保存结构与登录初始化结构保持一致。
+    """处理个人资料与角色语音校验协议；保存结构与登录初始化结构保持一致。
 
+    ``32044`` 只校验角色是否可播放语音，不修改存档。
     ``rewards`` 为可选出参：``sc_12003`` 只有 ``result``，心链剧情首读发放的物品
     无法通过协议字段下发，调用方据此补发库存推送。
     """
-    profile = profile_data(user)
     response = {'result': 0}
+    if command == 32044:
+        # 语音界面只传角色编号，播放前校验角色已拥有且已解锁。
+        # 客户端以 result=0 为成功，成功后播放本地语音文件。
+        role_id = int(request['role_id'])
+        if not any(int(hero.get('id', 0)) == role_id and hero.get('unlock', 1)
+                   for hero in user.get('heroes', [])):
+            raise ValueError('角色未拥有，无法播放语音')
+        return response
+    profile = profile_data(user)
     if command in (32122, 32130):
         rows = request['random_info_list'] if command == 32122 else [
             {'random_type': request['type'], 'random_list': request['random_list']}]

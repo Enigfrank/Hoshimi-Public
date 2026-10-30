@@ -2,8 +2,9 @@
 
 from copy import deepcopy
 
-from battle_rewards import equipment_data, reward_item
+from battle_rewards import equipment_data, grant_rewards, reward_item
 from gameplay_protocol import decode_message, read_client_data
+from hero_training_data import training_catalog, training_condition
 from proto_bridge import get_bridge
 from skin_scene_data import active_trials, skin_available, usable_skin_catalog
 
@@ -97,10 +98,21 @@ def hero_request(user: dict, command: int, request: dict) -> dict:
         return response
     if command in (14102, 14104, 71106, 71108, 71114):
         archive_id = request.get('archive_id')
+        anecdote = None
         if command == 71108:
             hero_id = request['hero_id']
-            if hero_id not in {h['id'] for h in user['heroes']}:
+            hero = next((h for h in user['heroes']
+                         if h['id'] == hero_id and h.get('unlock', 1)), None)
+            if hero is None:
                 raise ValueError('档案角色未拥有')
+            # 逸闻解锁由配置和交心等级决定，hero_story_list 只记录已读状态。
+            catalog = training_catalog()
+            anecdote = catalog['HeroAnedoteCfg'].get(str(hero_id))
+            if anecdote is None:
+                raise ValueError('逸闻配置不存在')
+            conditions = catalog['settings'].get('hero_anecdote_unlock_condition') or []
+            if not conditions or not training_condition(user, hero, conditions[0]):
+                raise ValueError('档案故事尚未解锁')
             ids = read_client_data(f"require('HeroRecordCfg').get_id_list_by_hero_id[{int(hero_id)}] or {{}}")
             archive_id = ids[0] if ids else None
         archive = next((a for a in hero_info_data(user)['archives'] if a['archive_id'] == archive_id), None)
@@ -120,9 +132,19 @@ def hero_request(user: dict, command: int, request: dict) -> dict:
             key = 'hero_id' if command == 71108 else 'index'
             index = request[key]
             row = next((r for r in archive[field] if r[key] == index), None)
+            was_viewed = bool(row and row.get('is_viewed'))
             if row is None:
-                raise ValueError('档案故事尚未解锁')
-            row['is_viewed'] = True
+                if command == 71114:
+                    raise ValueError('档案故事尚未解锁')
+                row = {key: index, 'is_viewed': True}
+                archive[field].append(row)
+            else:
+                row['is_viewed'] = True
+            if command == 71108 and not was_viewed:
+                rewards = [{'id': int(i), 'num': int(n)}
+                           for i, n in (anecdote.get('reward') or []) if n > 0]
+                grant_rewards(user, rewards)
+                response['reward_list'] = rewards
         user.setdefault('archives', {})[str(archive_id)] = archive
         return response
     if command in (13012, 13016, 13018, 13026):
