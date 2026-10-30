@@ -812,9 +812,12 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 user = deepcopy(session.user_data)
                 values = buy_goods(user, decode_message(cmd, pb_payload))
                 resp_pb = encode_message(resp_cmd, values)
-                pushes = inventory_pushes(user) + [(20009, shop_stock(user)),
-                    (14009, hero_info_data(user)), (46011, servant_data(user)),
-                    (32009, profile_data(user))]
+                from shop_transactions import home_purchase_pushes
+                pushes = home_purchase_pushes(user, values)
+                if pushes is None:
+                    pushes = inventory_pushes(user) + [(20009, shop_stock(user)),
+                        (14009, hero_info_data(user)), (46011, servant_data(user)),
+                        (32009, profile_data(user))]
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in pushes]
                 get_user_manager().save_user(user)
                 session.user_data = user
@@ -1020,11 +1023,16 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                     pushes.extend(servant_pushes(session.user_data, user))
                 resp_extra = [(c, encode_message(c, v), 0, 0.0)
                               for c, v in pushes]
+                if cmd == 73012:
+                    # 送礼回调只刷新界面，必须先收到经验；升级回调自行加级，仍保持后推。
+                    resp_before = [(c, pb) for c, pb, _, _ in resp_extra]
+                    resp_extra = []
                 if cmd not in (14042, 14122):
                     get_user_manager().save_user(user)
                     session.user_data = user
             except ValueError as error:
                 print(f'[修正者培养拒绝] 指令={cmd} {error}')
+                resp_before = []
                 resp_extra = None
                 resp_pb = encode_message(resp_cmd, {'result': 1})
         elif cmd == 14012:

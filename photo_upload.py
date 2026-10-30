@@ -1,4 +1,4 @@
-"""为原始 SDK 提供本地婚纱照上传配置、签名校验与图片读取。"""
+"""为原始 SDK 提供本地誓约照片和装修封面的签名上传与图片读取。"""
 
 import base64
 from datetime import datetime, timezone
@@ -17,13 +17,14 @@ from account_auth import request_values, sdk_result
 PHOTO_BODY_LIMIT = 8 * 1024 * 1024
 PHOTO_GRANTS = {}
 PHOTO_PATH = re.compile(r'^/photos/([0-9a-f]{24})/([0-9]+)/oath/picture_([0-9]+)_([0-9]+)\.(jpg|png)$')
+ROOM_PHOTO_PATH = re.compile(r'^/photos/([0-9a-f]{24})/([0-9a-f]{32})/room_edit/picture_([0-9]+)\.(jpg|png)$')
 CONFIG_PATHS = {'/mix-sdk-api/pass/oss/getAppUploadCfg', '/mix-sdk-api/pass/oss/getStsUploadToken'}
 
 
 def photo_credentials(line, body, headers, manager):
     """只为已认证账号签发十五分钟凭据，禁止空配置冒充成功。"""
     if not config.ENABLE_HTTPS:
-        return sdk_result(error='婚纱照上传需要本地 HTTPS，请先配置证书并启用 AGL_ENABLE_HTTPS')
+        return sdk_result(error='图片上传需要本地 HTTPS，请先配置证书并启用 AGL_ENABLE_HTTPS')
     values = request_values(line, body)
     token = values.get('token') or headers.get('token') or headers.get('clienttoken')
     user = manager.authenticate_token(token) if isinstance(token, str) and token else None
@@ -55,10 +56,12 @@ def photo_http_response(line, body, headers, manager):
         return json.dumps(result, ensure_ascii=False).encode(), 'application/json; charset=utf-8', 200
     if not path.startswith('/photos/'):
         return None
-    match = PHOTO_PATH.fullmatch(path)
+    oath = PHOTO_PATH.fullmatch(path)
+    match = oath or ROOM_PHOTO_PATH.fullmatch(path)
     if not match:
         return b'Invalid photo path', 'text/plain', 400
-    key, owner, uid_text, _, extension = match.groups()
+    key, owner = match.group(1, 2)
+    extension = match.groups()[-1]
     file = user_storage.DATA_DIR / path.lstrip('/')
     if method in ('GET', 'HEAD'):
         if not file.is_file():
@@ -67,12 +70,14 @@ def photo_http_response(line, body, headers, manager):
     if method != 'PUT':
         return b'Method not allowed', 'text/plain', 405
     grant = PHOTO_GRANTS.get(key, {})
-    uid = int(uid_text)
+    # 装修 SDK 使用哈希目录；随机凭据前缀与签名限制其写入空间，誓约仍校验 UID。
+    uid = int(oath.group(3)) if oath else grant.get('uid')
+    owner_valid = not oath or owner in (str(uid), str(uid + 2**32))
     canonical = (f"PUT\n\n{headers.get('content-type', '')}\n{headers.get('date', '')}"
                  f"\nx-oss-security-token:{headers.get('x-oss-security-token', '')}"
                  f"\nx-oss-storage-class:Standard\n/127{path}")
     signature = base64.b64encode(hmac.digest(grant.get('secret', '').encode(), canonical.encode(), 'sha1')).decode()
-    if grant.get('uid') != uid or owner not in (str(uid), str(uid + 2**32)) or grant.get('expires', 0) <= time.time() \
+    if not grant or grant.get('uid') != uid or not owner_valid or grant.get('expires', 0) <= time.time() \
             or not hmac.compare_digest(headers.get('x-oss-security-token', ''), grant.get('token', '')) \
             or not hmac.compare_digest(headers.get('authorization', ''), f'OSS {key}:{signature}'):
         return b'Invalid upload credentials', 'text/plain', 403

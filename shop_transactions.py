@@ -4,7 +4,7 @@ from functools import lru_cache
 from datetime import datetime, timedelta, timezone
 import time
 
-from battle_rewards import grant_rewards, spend_items
+from battle_rewards import grant_rewards, inventory_pushes, spend_items
 from gameplay_protocol import decode_message, read_client_data
 from proto_bridge import get_bridge
 from push_data import SHOP_GOODS_NOREFRESH
@@ -13,6 +13,20 @@ from task_progress import update_task_progress
 from server_clock import refresh_hour
 from skin_draw_catalog import skin_shop_goods
 from currency_data import build_currency_balances
+
+
+def home_purchase_pushes(user: dict, result: dict) -> list[tuple] | None:
+    """游园街购买使用家具/食材通知，不在购买弹窗后重置角色与商店初始化数据。"""
+    rewards = result['give_items']
+    if not rewards or not all(read_client_data(
+            f"(require('ItemCfg')[{r['id']}] or require('ItemCfg2')[{r['id']}]).type") in (15, 16)
+            for r in rewards):
+        return None
+    from backhome_data import furniture_data
+    given = {r['furniture_id']: r['give_num'] for r in furniture_data(user)}
+    rows = [{'id': i, 'num': user.get('materials', {}).get(str(i), 0), 'give_num': given.get(i, 0)}
+            for i in sorted({r['id'] for r in rewards})]
+    return inventory_pushes(user)[:2] + [(17023, {'back_home_list': rows})]
 
 
 @lru_cache(maxsize=1)

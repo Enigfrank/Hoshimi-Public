@@ -14,7 +14,7 @@ def training_catalog() -> dict:
         for _,name in ipairs({'GameLevelSetting','HeroBreakCfg','SkillCfg','HeroSkillElementCfg',
             'HeroAstrolabeCfg','WeaponModuleCfg','EquipMaterialCfg','ConditionCfg','HeroRecordCfg',
             'HeroStarUpTemplateCfg','HeroStarSkillCfg','ComboSkillCfg','ComboSkillLevelCfg',
-            'HeroTrustCfg','HeroTrustLevelCfg','HeroRelationNetCfg','HeroRelationUpgradeCfg',
+            'HeroTrustCfg','HeroTrustLevelCfg','HeroTrustMoodCfg','HeroRelationNetCfg','HeroRelationUpgradeCfg',
             'HeroRelationUpgradeConditionCfg','HeroRelationCfg','HeroAnedoteCfg'}) do
             local c=require(name);local rows={}
             for _,id in ipairs(c.all) do

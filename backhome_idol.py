@@ -25,10 +25,12 @@ def idol_info(user: dict) -> dict:
 
 
 def idol_pve_data(user: dict) -> dict:
-    """未通关关卡不生成成功占位记录，最高分与实际胜利分别保存。"""
+    """下发已解锁的未通关关卡；缺失记录在客户端表示锁定，不表示零分。"""
     state = backhome_state(user)['idol']
     return {'chapter_list': [{'chapter_id': int(i), 'stage_list': [deepcopy(state['pve'][str(s)])
-            for s in cfg['section_id_list'] if str(s) in state['pve']]}
+            if str(s) in state['pve'] else {'stage_id': s, 'score': 0, 'is_clear': False}
+            for index, s in enumerate(cfg['section_id_list']) if index == 0 or str(s) in state['pve']
+            or state['pve'].get(str(cfg['section_id_list'][index - 1]), {}).get('is_clear', False)]}
             for i, cfg in backhome_catalog()['IdolTraineeChapterCfg'].items()]}
 
 
