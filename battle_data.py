@@ -91,6 +91,9 @@ def start_battle(user: dict, request: dict) -> tuple[dict, dict]:
         cfg = stage_config(35, stage_id)
     else:
         actual_dest = common['dest']
+        if common['type'] == 78:
+            from rogue_team import prepare_rogue_battle
+            actual_dest = prepare_rogue_battle(user, common)
         if common['type'] == 74 and actual_dest == 0:
             from resident_board_data import board_run, board_entity
             from resident_catalog import resident_config
@@ -191,6 +194,8 @@ def start_battle(user: dict, request: dict) -> tuple[dict, dict]:
     user['last_battle_id'] = battle_id
     battle = {'id': battle_id, 'started': now, 'common': common, 'config': cfg,
               'reported': None, 'settlement': None}
+    if common['type'] == 78:
+        battle['rogue_serial'] = user['rogue_team']['run']['serial']
     if common['type'] == 92:
         battle['hodur'] = hodur
     if common['type'] == 93:
@@ -242,6 +247,9 @@ def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
         raise ValueError('战斗 ID 不匹配')
     if battle.get('period_expired'):
         raise ValueError('玩法周期已刷新，请重新进入战斗')
+    if battle['common']['type'] == 78:
+        from rogue_team import validate_rogue_battle
+        validate_rogue_battle(user, battle)
     if battle['common']['type'] == 93:
         from neural_matrix import validate_neural_settlement
         validate_neural_settlement(user, battle)
@@ -261,6 +269,9 @@ def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
         if battle['hodur']['serial'] != hodur_serial(user, battle['hodur']['chapter']):
             raise ValueError('谧光路线已重置，本场战斗不能结算')
     seconds = info['2'] // 1000 if '2' in info else max(0, int(time.time()) - battle['started'])
+    if common['type'] == 78:
+        from rogue_team import complete_rogue_battle
+        complete_rogue_battle(user, battle, seconds)
     if common['type'] == 82:
         from mult_heart_demon import settle_demon_battle
         settle_demon_battle(user, battle)

@@ -127,6 +127,7 @@ def build_gameplay_pushes(user: dict) -> list[tuple]:
     from backhome_requests import backhome_initial_pushes
     from admin_cat_explore import explore_data
     from neural_matrix import neural_data
+    from rogue_team import rogue_pushes
     now = int(time.time())
     catalog = client_catalog()
     data = [
@@ -144,6 +145,7 @@ def build_gameplay_pushes(user: dict) -> list[tuple]:
         (47003, hero_teaching(user)),
         (63005, reserve_data(user)),
         *challenge_pushes(user),
+        *rogue_pushes(user),
         *activity_pt_scroll_pushes(user),
         *mult_heart_demon_pushes(user),
         *resident_pushes(user),
@@ -159,6 +161,9 @@ def battle_progress_pushes(user: dict, stage_type: int) -> list[tuple]:
     from equip_exploration import exploration_pushes
     from hero_oath import assignment_pushes
     from hero_training_progress import training_battle_pushes
+    if stage_type == 78:
+        from rogue_team import rogue_pushes
+        return [(cmd, encode_message(cmd, values), 0, 0.0) for cmd, values in rogue_pushes(user)]
     if stage_type == 61:
         from activity_pt_scroll import activity_pt_scroll_pushes
         data = activity_pt_scroll_pushes(user)

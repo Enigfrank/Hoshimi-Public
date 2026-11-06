@@ -55,6 +55,7 @@ from shop_transactions import buy_goods, shop_stock, refresh_shop_periods
 from loadout_storage import LOADOUT_COMMANDS, loadout_request, servant_data, chip_data
 from passport_progress import passport_request
 from challenge_requests import CHALLENGE_COMMANDS, challenge_request
+from rogue_team import ROGUE_COMMANDS as ROGUE_TEAM_COMMANDS, rogue_request as rogue_team_request, handles_rogue_claim
 from admin_cat_explore import EXPLORE_COMMANDS, explore_request
 from equip_cultivation import EQUIP_COMMANDS, equip_request, equip_pushes
 from servant_cultivation import SERVANT_COMMANDS, servant_request, servant_pushes
@@ -607,6 +608,28 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 print(f'[决斗王联机拒绝] 指令={cmd} {error}')
                 resp_pb = encode_message(resp_cmd, {'result': 1})
                 resp_extra = None
+        elif cmd in ROGUE_TEAM_COMMANDS or cmd == 60054 and handles_rogue_claim(decode_message(cmd, pb_payload)):
+            from copy import deepcopy
+            resp_cmd = cmd + 1
+            try:
+                if not session or not session.user_data:
+                    raise ValueError('未登录')
+                user = deepcopy(session.user_data)
+                values, pushes = rogue_team_request(user, cmd if cmd != 60054 else 'claim', decode_message(cmd, pb_payload))
+                resp_pb = encode_message(resp_cmd, values)
+                pushes += inventory_pushes(user)
+                resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in pushes]
+                if cmd in (88100, 88030, 88008):
+                    resp_before = [(c, pb) for c, pb, _, _ in resp_extra]
+                    resp_extra = []
+                if user != session.user_data:
+                    get_user_manager().save_user(user)
+                session.user_data = user
+            except ValueError as error:
+                print(f'[虚构推演拒绝] 指令={cmd} {error}')
+                resp_before = []
+                resp_extra = None
+                resp_pb = encode_message(resp_cmd, {'result': 1})
         elif cmd in RESIDENT_COMMANDS or cmd in (69004, 69006) and decode_message(cmd, pb_payload)['activity_id'] in (3941201, 3840901):
             from copy import deepcopy
             resp_cmd = cmd + 1
@@ -1265,6 +1288,9 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 resp_pb = encode_message(resp_cmd, values)
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in inventory_pushes(user)]
                 resp_extra += battle_progress_pushes(user, battle['common']['type'])
+                if battle['common']['type'] == 78:
+                    resp_before = [(c, pb) for c, pb, _, _ in resp_extra if 88000 <= c < 88400]
+                    resp_extra = [push for push in resp_extra if not 88000 <= push[0] < 88400]
                 if battle['common']['type'] == 93:
                     resp_before = [(c, pb) for c, pb, _, _ in resp_extra if c in (89801, 89811)]
                     resp_extra = [push for push in resp_extra if push[0] not in (89801, 89811)]
