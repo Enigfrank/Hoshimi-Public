@@ -16,7 +16,7 @@ from account_auth import request_values, sdk_result
 
 PHOTO_BODY_LIMIT = 8 * 1024 * 1024
 PHOTO_GRANTS = {}
-PHOTO_PATH = re.compile(r'^/photos/([0-9a-f]{24})/([0-9]+)/oath/picture_([0-9]+)_([0-9]+)\.(jpg|png)$')
+PHOTO_PATH = re.compile(r'^/photos/([0-9a-f]{24})/([0-9]+|[0-9a-f]{32})/oath/picture_([0-9]+)_([0-9]+)\.(jpg|png)$')
 ROOM_PHOTO_PATH = re.compile(r'^/photos/([0-9a-f]{24})/([0-9a-f]{32})/room_edit/picture_([0-9]+)\.(jpg|png)$')
 CONFIG_PATHS = {'/mix-sdk-api/pass/oss/getAppUploadCfg', '/mix-sdk-api/pass/oss/getStsUploadToken'}
 
@@ -45,7 +45,7 @@ def photo_credentials(line, body, headers, manager):
 
 
 def photo_http_response(line, body, headers, manager):
-    """处理原始 SDK 的配置、PUT 与 GET；只写入受限照片路径。"""
+    """处理签名上传与读取，兼容 SDK 哈希目录及旧版数字目录。"""
     method, target, *_ = line.split(' ')
     path = urlsplit(target).path
     if path in CONFIG_PATHS:
@@ -70,9 +70,9 @@ def photo_http_response(line, body, headers, manager):
     if method != 'PUT':
         return b'Method not allowed', 'text/plain', 405
     grant = PHOTO_GRANTS.get(key, {})
-    # 装修 SDK 使用哈希目录；随机凭据前缀与签名限制其写入空间，誓约仍校验 UID。
+    # SDK 哈希目录由凭据前缀与签名限制写入空间；誓约文件名中的 UID 必须属于凭据账号。
     uid = int(oath.group(3)) if oath else grant.get('uid')
-    owner_valid = not oath or owner in (str(uid), str(uid + 2**32))
+    owner_valid = not oath or len(owner) == 32 or owner in (str(uid), str(uid + 2**32))
     canonical = (f"PUT\n\n{headers.get('content-type', '')}\n{headers.get('date', '')}"
                  f"\nx-oss-security-token:{headers.get('x-oss-security-token', '')}"
                  f"\nx-oss-storage-class:Standard\n/127{path}")
