@@ -1266,10 +1266,14 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 if not session or not session.user_data:
                     raise ValueError('未登录')
                 user = deepcopy(session.user_data)
-                values, pushes = sweep_battle(user, decode_message(cmd, pb_payload))
+                request = decode_message(cmd, pb_payload)
+                values, pushes = sweep_battle(user, request)
                 resp_pb = encode_message(resp_cmd, values)
                 resp_before = [(c, encode_message(c, v)) for c, v in pushes]
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in inventory_pushes(user)]
+                if request['common_info']['type'] == 2:
+                    # 资源关卡扫荡与普通结算一样刷新每日关卡次数，避免界面保留旧次数。
+                    resp_extra += battle_progress_pushes(user, 2)
                 resp_extra += [(c, encode_message(c, v), 0, 0.0) for c, v in
                                ((28001, task_data(user)), (28019, task_points(user)))]
                 get_user_manager().save_user(user)
