@@ -52,9 +52,15 @@ def rogue_request(user: dict, command: int, request: dict) -> tuple[dict, list]:
     return result['reply'], [tuple(row) for row in result['pushes']]
 
 
-def rogue_pushes(user: dict) -> list[tuple]:
-    """登录、断线恢复和战斗返回时恢复局内地图及待处理选择。"""
-    result = _execute(user, 'pushes', {})
+def rogue_pushes(user: dict, *, battle_result: bool = False) -> list[tuple]:
+    """恢复地图及待处理选择；战斗结果通知仅用于战斗结算返回。"""
+    result = _execute(user, 'pushes', {'battle_result': battle_result})
+    return [tuple(row) for row in result['pushes']]
+
+
+def rogue_battle_pushes(user: dict) -> list[tuple]:
+    """开战前恢复已校验的节点和地图，避免客户端以空路径计算战斗词缀。"""
+    result = _execute(user, 'battle_pushes', {})
     return [tuple(row) for row in result['pushes']]
 
 

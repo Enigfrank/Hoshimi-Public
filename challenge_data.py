@@ -7,7 +7,7 @@ from gameplay_protocol import read_client_data
 from polyhedron_game import polyhedron_data
 from equip_exploration import exploration_pushes
 from battle_progress import progress, tower_progress
-from activity_periods import period_window
+from activity_periods import period_settings, period_window
 
 
 @lru_cache(maxsize=1)
@@ -227,6 +227,23 @@ def rogue_team_data(user: dict) -> dict:
             'last_id': state.get('last_id', 0)}
 
 
+def core_data(user: dict) -> dict:
+    """按客户端配置顺序轮换迭代校验，预告下期并只恢复当期进度。"""
+    rows = challenge_catalog()['core']
+    cycles = list(dict.fromkeys(row['cycle'] for row in rows))
+    settings = period_settings()
+    start, end = period_window('core', settings)
+    cfg = settings['core']
+    index = ((start - cfg['anchor']) // (cfg['hours'] * 3600)) % len(cycles)
+    cycle = cycles[index]
+    return {'now_cycle': cycle, 'next_cycle': cycles[(index + 1) % len(cycles)],
+            'refresh_timestamp': end, 'max_score_info': {},
+            'stage_info': [{'id': row['id'], 'sign': 1,
+                            'min_time': progress(user, 67, row['id'])['best_time'] * 1000}
+                           for row in rows if row['cycle'] == cycle
+                           and progress(user, 67, row['id']).get('clear_times')]}
+
+
 def challenge_pushes(user: dict) -> list[tuple]:
     """初始化黑区、深阱、梦境、迭代和刻印挑战的页面依赖。"""
     c = challenge_catalog()
@@ -284,10 +301,7 @@ def challenge_pushes(user: dict) -> list[tuple]:
         (55001, {'activity_id': abyss[0]['activity_id'], 'is_back': False, 'history_max_layer': history_layer,
                  'last_version_max_unlock_layer': min(len(layers), history_layer + 1) if initial else len(layers), 'refresh_timestamp': refresh,
                  'layer_info_list': layers, 'got_layer_reward_list': user.get('abyss_rewards', [])}),
-        (75009, {'now_cycle': c['core'][0]['cycle'], 'next_cycle': c['core'][0]['cycle'],
-                 'refresh_timestamp': period_window('core')[1], 'max_score_info': {},
-                 'stage_info': [{'id': x['id'], 'sign': 1, 'min_time': progress(user,67,x['id'])['best_time']*1000}
-                                for x in c['core'] if progress(user,67,x['id']).get('clear_times')]}),
+        (75009, core_data(user)),
         (18001, polyhedron_data(user)),
         *([(18005, {'end_info': user['polyhedron_settlement']})]
           if user.get('polyhedron', {}).get('game', {}).get('state') == 3 and user.get('polyhedron_settlement') else []),

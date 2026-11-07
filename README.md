@@ -16,6 +16,7 @@
 | battle_*.py、hero_*.py、resident_*.py 等 | 按领域划分的玩法 |
 | hotfix.py、cdn_connection.py | 热更新与资源接入 |
 | gm_admin.py、gm_web/ | 本机 GM 接口与页面 |
+| diagnostic_bundle.py、diagnostic_logging.py | 诊断包预览与下载、Python 运行日志捕获 |
 | rescouces/requirements.txt | 核心依赖说明 |
 | rescouces/scripts/gen_cert.ps1 | 旧 HTTPS 模式证书生成 |
 | LICENSE、THIRD_PARTY_NOTICES.txt | 许可与第三方声明 |
@@ -100,6 +101,10 @@ python -B server.py
 基础环境检查不代替完整启动验证。启动继续执行协议自检，成功后监听 HTTP、TCP、UDP。默认分别使用 8080、5001、5001；启用旧 HTTPS 时才使用 443。按 Ctrl+C 停止。
 
 本机 GM 页面地址为 http://127.0.0.1:8080/gm/，HTTP 端口变化时相应调整。GM 校验回环来源、本机 Host 与同源请求。
+
+GM 的“诊断包”页面支持按时间预览并下载 ZIP，包含白名单配置摘要、源码运行标识、协议兜底累计快照、服务端 `logs/` 及实际 `GAME_CLIENT_DIR/CrashSightLog/` 中的相关日志。使用 `python -B server.py` 时会同时保存带时间戳的控制台日志，每个文件 10 MiB，保留三份轮转文件。预览有效期 10 分钟，重新生成会替换旧预览；下载内容与预览一致，不自动上传。
+
+诊断日志按行时间筛选，无可识别时间时按文件修改时间选择并提示；每个来源最多检查最近 64 个 `.log`、`.log.1` 至 `.log.3` 或 `.txt` 文件，每文件最多读取末尾 4 MiB、每类日志各有 8 MiB 额度、两类总读取上限 16 MiB。缺失、读取失败、截断或字符替换都会提示。不会额外收集完整配置、存档或 SDK 缓存；日志保留原文件名和筛选后的原始文字，不进行自动脱敏或敏感关键词删行，分享前请逐项检查。实现入口为 `diagnostic_bundle.py`，日志捕获在 `diagnostic_logging.py`；调试与验证请使用隔离目录。
 
 客户端需要匹配的接入配置或配套脚本。本仓库没有附带客户端切换脚本，启动服务不会自动完成客户端接入配置。
 

@@ -12,7 +12,7 @@ CHALLENGE_COMMANDS = {44012, 44024, 44026, 44028, 45004, 45006, 45104,
 
 
 def challenge_request(user: dict, command: int, request: dict) -> dict:
-    """按真实通关记录领取一次奖励，重置保留已经领取的奖励标记。"""
+    """按真实通关记录领取奖励，迭代积分档位按客户端模板编号校验。"""
     catalog = challenge_catalog()
     rewards = []
     response = {'result': 0}
@@ -142,7 +142,7 @@ def challenge_request(user: dict, command: int, request: dict) -> dict:
         state.update({'difficult': request['difficult'], 'hero_list': deepcopy(request.get('hero_list', [])),
                       'affix_pool_id_list': list(affixes)})
     elif command == 88316:
-        template = next((row for row in catalog['rogue'] if row['activity_id'] == request['main_id']), None)
+        template = next((row for row in catalog['rogue'] if row['id'] == request['main_id']), None)
         if template is None or request['id'] not in rogue_score_reward_ids(template['id']):
             raise ValueError('迭代积分奖励档位无效')
         user.setdefault('rogue_team', {})['last_id'] = request['id']

@@ -91,6 +91,10 @@
         <svg class="nav-icon" aria-hidden="true"><use href="#icon-protocol"></use></svg>
         <span class="nav-text">协议覆盖</span>
       </button>
+      <button type="button" class="nav-item" data-tab="diagnostics">
+        <svg class="nav-icon" aria-hidden="true"><use href="#icon-audit"></use></svg>
+        <span class="nav-text">诊断包</span>
+      </button>
     </nav>
   </aside>
 
@@ -433,6 +437,37 @@
             <tbody id="protocol-rows"></tbody>
           </table>
         </div>
+      </div>
+    </section>
+    <section id="diagnostics" class="panel" hidden>
+      <div class="panel-header">
+        <h2 class="panel-title">诊断包</h2>
+        <p class="panel-desc">收集版本、配置摘要、协议兜底累计快照，以及所选时段的服务端和游戏 CrashSightLog 日志。</p>
+      </div>
+      <div class="panel-body">
+        <form id="diagnostic-form" class="standard-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="diagnostic-start">开始时间（本机时区）</label>
+              <input id="diagnostic-start" name="start" class="form-input" type="datetime-local" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="diagnostic-end">结束时间（本机时区）</label>
+              <input id="diagnostic-end" name="end" class="form-input" type="datetime-local" required>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">生成并预览</button>
+            <button id="diagnostic-export" type="button" class="btn-secondary" disabled>下载已预览的 ZIP</button>
+          </div>
+        </form>
+        <p id="diagnostic-warnings" class="panel-desc" role="status"></p>
+        <div class="form-group">
+          <label class="form-label" for="diagnostic-file">包内文件与日志内容</label>
+          <select id="diagnostic-file" class="form-input" disabled></select>
+        </div>
+        <pre id="diagnostic-content" class="data-display"></pre>
+        <p class="panel-desc">预览有效期为 10 分钟；重新生成会替换上一份。日志不进行自动脱敏，请检查内容后再自行提交到 Issue。诊断包只下载到本机，不自动上传。</p>
       </div>
     </section>
   </main>

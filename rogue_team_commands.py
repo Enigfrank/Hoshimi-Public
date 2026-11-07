@@ -61,7 +61,10 @@ local function select_node(id)
 end
 if command=='pushes' then
     migrate();snapshot(true);score_push()
-    if r and r.last_battle then emit(88033,r.last_battle) end
+    -- 88033 会访问战斗页创建的编队代理，登录恢复不能重放旧战斗结果。
+    if request.battle_result and r and r.last_battle then emit(88033,r.last_battle) end
+elseif command=='battle_pushes' then
+    active();snapshot(true)
 elseif command==88100 then
     assert(not r or r.settled,'已有进行中的推演，请继续或结算后重新开始')
     s.template_id=request.template_id;template=cfg('RogueTeamCfg',s.template_id)
@@ -191,9 +194,9 @@ elseif command==88312 then
     end
     emit(88305,outside())
 elseif command==88316 then
-    assert(request.main_id==template.activity_id,'积分活动不匹配')
+    assert(request.main_id==s.template_id,'积分模板不匹配')
     local reward=cfg('ActivityPointRewardCfg',request.id)
-    assert(has(cfg('ActivityCfg',template.activity_id).sub_activity_list,reward.activity_id),'积分档位不属于本玩法')
+    assert(has(cfg('ActivityCfg',template.activity_id).sub_activity_list,reward.activity_id) and cfg('ActivityCfg',reward.activity_id).activity_template==82,'积分档位不属于本玩法')
     s.last_id=request.id
 elseif command=='claim' then
     local ids=request.point_reward_id_list;assert(#ids>0,'领奖列表为空');local seen={}

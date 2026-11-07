@@ -439,7 +439,7 @@ def handle_native_battle(packet: bytes, context: dict) -> list[bytes]:
     return []
 
 def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=None, session: Optional[ClientSession] = None) -> bytes | None:
-    """处理 ET 请求与内嵌游戏协议，构造登录响应及有序数据推送。"""
+    """处理 ET 请求与内嵌游戏协议，先恢复玩法状态再下发战斗成功响应。"""
     if opcode == 100:  # Op_ping -> Op_pong
         c_time = decode_ping(body)
         s_time = int(time.time() * 1000)
@@ -1242,6 +1242,9 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 user = deepcopy(session.user_data)
                 battle, player = start_battle(user, decode_message(cmd, pb_payload))
                 player_pb = encode_message(54003, player)
+                if battle['common']['type'] == 78:
+                    from rogue_team import rogue_battle_pushes
+                    resp_before = [(c, encode_message(c, v)) for c, v in rogue_battle_pushes(user)]
                 save_battle_team(user, battle['common'], battle['config'])
                 user['battle_session'] = battle
                 get_user_manager().save_user(user)
@@ -1253,6 +1256,7 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 print(f"[战斗开始] 类型={battle['common']['type']} 关卡={battle['common']['dest']} ID={battle['id']}")
             except ValueError as error:
                 print(f"[战斗拒绝] {error}")
+                resp_before = []
                 resp_pb = bridge.encode_sc_54031(result=1)
         elif cmd == 54038:
             from copy import deepcopy
@@ -1840,6 +1844,8 @@ if __name__ == "__main__":
     # 重定向日志同样使用 UTF-8，避免中文输出被系统代码页错误解码。
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
+    from diagnostic_logging import install_log_capture
+    install_log_capture(BASE_DIR)
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

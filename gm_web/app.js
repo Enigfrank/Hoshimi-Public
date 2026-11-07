@@ -332,5 +332,74 @@ submit('mail-form', form => {
 });
 submit('notice-form', form => action({ action: 'announcement', id: Number(form.get('id')), type: Number(form.get('type')), title: form.get('title'), content: form.get('content'), start: Math.floor(new Date(form.get('start')).getTime() / 1000), end: Math.floor(new Date(form.get('end')).getTime() / 1000) }));
 byId('new-notice').addEventListener('click', () => editNotice());
+/** 清除旧预览，避免修改时间范围后下载到旧诊断包。 */
+function resetDiagnosticPreview() {
+  diagnosticPreview = null;
+  byId('diagnostic-export').disabled = true;
+  byId('diagnostic-file').disabled = true;
+  byId('diagnostic-file').replaceChildren();
+  byId('diagnostic-content').textContent = '';
+  byId('diagnostic-warnings').textContent = '';
+}
+
+/** 展示选中文件的完整快照，日志内容始终作为文本渲染。 */
+function renderDiagnosticFile() {
+  const file = diagnosticPreview?.files[Number(byId('diagnostic-file').value)];
+  byId('diagnostic-content').textContent = file?.content ?? '';
+}
+
+let diagnosticPreview = null;
+byId('diagnostic-start').value = localTime(Math.floor(Date.now() / 1000) - 86400);
+byId('diagnostic-end').value = localTime(Math.floor(Date.now() / 60000) * 60 + 60);
+byId('diagnostic-form').addEventListener('input', resetDiagnosticPreview);
+byId('diagnostic-file').addEventListener('change', renderDiagnosticFile);
+submit('diagnostic-form', async form => {
+  resetDiagnosticPreview();
+  const start = new Date(form.get('start'));
+  const end = new Date(form.get('end'));
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start >= end) {
+    throw new Error('请填写有效时间，结束时间须晚于开始时间');
+  }
+  const values = { start: start.toISOString(), end: end.toISOString() };
+  const preview = await api('diagnostics/preview', values);
+  // 请求期间调整了时间范围时，丢弃已经失效的响应。
+  if (new Date(byId('diagnostic-start').value).getTime() !== start.getTime() ||
+      new Date(byId('diagnostic-end').value).getTime() !== end.getTime()) return;
+  diagnosticPreview = preview;
+  byId('diagnostic-file').replaceChildren(...preview.files.map((file, index) => {
+    const option = document.createElement('option');
+    option.value = index;
+    option.textContent = `${file.name} · ${file.size} 字节`;
+    return option;
+  }));
+  byId('diagnostic-file').disabled = false;
+  byId('diagnostic-warnings').textContent = preview.warnings.join('；');
+  byId('diagnostic-export').disabled = false;
+  renderDiagnosticFile();
+  status(`诊断包已生成，ZIP ${preview.zip_bytes} 字节，请逐项预览后下载`, 'success');
+});
+byId('diagnostic-export').addEventListener('click', event => run(async () => {
+  if (!diagnosticPreview) throw new Error('请先生成预览');
+  const response = await fetch('/gm/api/diagnostics/export', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ preview_id: diagnosticPreview.preview_id })
+  });
+  if (!response.ok) {
+    resetDiagnosticPreview();
+    throw new Error((await response.json()).error || '诊断包下载失败，请重新生成预览');
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'Hoshimi-diagnostics.zip';
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  status('诊断包已下载，请检查后再自行提交', 'success');
+}, event.currentTarget).finally(() => {
+  byId('diagnostic-export').disabled = !diagnosticPreview;
+}));
+
 editNotice();
 run(async () => { await refresh(); status('数据已加载', 'success'); });

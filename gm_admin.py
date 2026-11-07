@@ -153,7 +153,7 @@ def resident_progress(user: dict) -> dict:
 
 
 def gm_response(request_line, body, headers, peer, sync_account, sync_notice, online):
-    """验证本机来源和写请求，再分发有限管理接口；返回正文、类型与状态码。"""
+    """验证本机来源和写请求，分发管理与诊断接口；返回正文、类型与状态码。"""
     def response(value, status=200):
         """编码统一 JSON 结果。"""
         return json.dumps(value, ensure_ascii=False).encode('utf-8'), 'application/json; charset=utf-8', status
@@ -169,6 +169,9 @@ def gm_response(request_line, body, headers, peer, sync_account, sync_notice, on
         if origin and origin != 'http://' + headers.get('host', '') and origin != 'https://' + headers.get('host', ''):
             return response({'error': '请求来源无效'}, 403)
         path = url.path
+        if path in ('/gm/api/diagnostics/preview', '/gm/api/diagnostics/export'):
+            from diagnostic_bundle import http_response
+            return http_response(path, method, body, headers.get('content-type', ''))
         if path in ('/gm', '/gm/', '/gm/app.js', '/gm/style.css'):
             if method != 'GET':
                 return response({'error': '请求方法无效'}, 405)

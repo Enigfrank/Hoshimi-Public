@@ -156,14 +156,15 @@ def build_gameplay_pushes(user: dict) -> list[tuple]:
 
 
 def battle_progress_pushes(user: dict, stage_type: int) -> list[tuple]:
-    """结算只同步当前玩法进度，避免重新初始化任务、排期和编队。"""
+    """结算只同步当前玩法进度，虚构推演在此附带战斗结果通知。"""
     from battle_progress import story_progress
     from equip_exploration import exploration_pushes
     from hero_oath import assignment_pushes
     from hero_training_progress import training_battle_pushes
     if stage_type == 78:
         from rogue_team import rogue_pushes
-        return [(cmd, encode_message(cmd, values), 0, 0.0) for cmd, values in rogue_pushes(user)]
+        return [(cmd, encode_message(cmd, values), 0, 0.0)
+                for cmd, values in rogue_pushes(user, battle_result=True)]
     if stage_type == 61:
         from activity_pt_scroll import activity_pt_scroll_pushes
         data = activity_pt_scroll_pushes(user)
