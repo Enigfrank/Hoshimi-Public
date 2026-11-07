@@ -904,6 +904,10 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 print(f'[物品拒绝] 指令={cmd} {error}')
                 resp_extra = None
                 resp_pb = encode_message(resp_cmd, {'result': 1})
+                if cmd == 12046 and session and session.user_data:
+                    # 失败时也补发领取状态，避免客户端漏收登录推送后一直显示可领取。
+                    resp_extra = [(c, encode_message(c, v), 0, 0.0)
+                                  for c, v in daily_pushes(session.user_data)]
         elif cmd in (28010, 28014, 28016):
             from copy import deepcopy
             resp_cmd = cmd + 1
@@ -1240,7 +1244,7 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 if not session:
                     raise ValueError('未登录')
                 user = deepcopy(session.user_data)
-                battle, player = start_battle(user, decode_message(cmd, pb_payload))
+                battle, player = start_battle(user, decode_message(cmd, pb_payload), max_times=10)
                 player_pb = encode_message(54003, player)
                 if battle['common']['type'] == 78:
                     from rogue_team import rogue_battle_pushes
@@ -1266,10 +1270,14 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 if not session or not session.user_data:
                     raise ValueError('未登录')
                 user = deepcopy(session.user_data)
-                values, pushes = sweep_battle(user, decode_message(cmd, pb_payload))
+                request = decode_message(cmd, pb_payload)
+                values, pushes = sweep_battle(user, request)
                 resp_pb = encode_message(resp_cmd, values)
                 resp_before = [(c, encode_message(c, v)) for c, v in pushes]
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in inventory_pushes(user)]
+                if request['common_info']['type'] == 2:
+                    # 资源关卡扫荡与普通结算一样刷新每日关卡次数，避免界面保留旧次数。
+                    resp_extra += battle_progress_pushes(user, 2)
                 resp_extra += [(c, encode_message(c, v), 0, 0.0) for c, v in
                                ((28001, task_data(user)), (28019, task_points(user)))]
                 get_user_manager().save_user(user)
