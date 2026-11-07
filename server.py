@@ -1244,7 +1244,7 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 if not session:
                     raise ValueError('未登录')
                 user = deepcopy(session.user_data)
-                battle, player = start_battle(user, decode_message(cmd, pb_payload))
+                battle, player = start_battle(user, decode_message(cmd, pb_payload), max_times=10)
                 player_pb = encode_message(54003, player)
                 if battle['common']['type'] == 78:
                     from rogue_team import rogue_battle_pushes
