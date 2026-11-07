@@ -904,6 +904,10 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 print(f'[物品拒绝] 指令={cmd} {error}')
                 resp_extra = None
                 resp_pb = encode_message(resp_cmd, {'result': 1})
+                if cmd == 12046 and session and session.user_data:
+                    # 失败时也补发领取状态，避免客户端漏收登录推送后一直显示可领取。
+                    resp_extra = [(c, encode_message(c, v), 0, 0.0)
+                                  for c, v in daily_pushes(session.user_data)]
         elif cmd in (28010, 28014, 28016):
             from copy import deepcopy
             resp_cmd = cmd + 1
