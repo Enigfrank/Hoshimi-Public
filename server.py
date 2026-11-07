@@ -1252,7 +1252,8 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 session.battle = battle
                 resp_pb = bridge.encode_sc_54031(result=0)
                 resp_extra = [(54003, player_pb, 0, 0.05),
-                              (54007, bridge.encode_sc_54007(battle_id=battle['id']), 0, 0.1)]
+                              (54007, bridge.encode_sc_54007(battle_id=battle['id'], ip=HOST,
+                                                             port=str(TCP_GATEWAY_PORT)), 0, 0.1)]
                 print(f"[战斗开始] 类型={battle['common']['type']} 关卡={battle['common']['dest']} ID={battle['id']}")
             except ValueError as error:
                 print(f"[战斗拒绝] {error}")
