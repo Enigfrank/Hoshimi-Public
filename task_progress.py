@@ -41,12 +41,27 @@ def update_task_progress(user: dict, condition: int, amount: int = 1, parameter:
             entry['progress'] = min(cfg['need'], entry['progress'] + amount)
 
 
-def claim_tasks(user: dict, ids: list[int]) -> dict:
-    """整批校验任务已完成且未领取，然后保存领取状态并发放真实奖励。"""
+def claim_available_task_points(user: dict, point_id: int) -> list[dict]:
+    """领取指定活跃度类型中已达成且未领取的全部奖励。"""
+    cfg = read_client_data(f"require('ActivityPtCfg')[{int(point_id)}] or {{}}")
+    point = user.setdefault('task_points', {}).setdefault(str(point_id), {'point': 0, 'claimed': []})
+    rewards = []
+    for target, reward_cfg in zip(cfg.get('target', []), cfg.get('reward', [])):
+        if target in point['claimed'] or point['point'] < target:
+            continue
+        current = [{'id': item, 'num': amount} for item, amount in reward_cfg]
+        grant_rewards(user, current)
+        point['claimed'].append(target)
+        rewards.extend(current)
+    return rewards
+
+
+def claim_tasks(user: dict, ids: list[int], task_type: int = 0) -> dict:
+    """整批校验任务；每日、每周空列表分别领取活跃度 1、3 的达成奖励。"""
     from gameplay_data import client_catalog, task_data
     active = {row['id'] for row in task_data(user)['assignment_list']}
     catalog = {cfg['id']: cfg for cfg in client_catalog()['tasks']}
-    if not ids or len(set(ids)) != len(ids):
+    if (not ids and task_type not in (6, 5)) or len(set(ids)) != len(ids):
         raise ValueError('任务列表为空或重复')
     rewards = []
     for task_id in ids:
@@ -59,6 +74,9 @@ def claim_tasks(user: dict, ids: list[int]) -> dict:
         user['tasks'][str(task_id)]['complete_flag'] = 1
     grant_rewards(user, rewards)
     update_task_progress(user, 300, sum(r['num'] for r in rewards if r['id'] == 22), 22)
+    point_id = {6: 1, 5: 3}.get(task_type)
+    if point_id:
+        rewards.extend(claim_available_task_points(user, point_id))
     return {'result': 0, 'reward_list': rewards}
 
 

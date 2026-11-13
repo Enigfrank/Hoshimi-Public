@@ -913,7 +913,8 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 request = decode_message(cmd, pb_payload)
                 user = deepcopy(session.user_data)
                 values = claim_task_points(user, request) if cmd == 28016 else claim_tasks(
-                    user, [request['id']] if cmd == 28010 else request['id_list'])
+                    user, [request['id']] if cmd == 28010 else request['id_list'],
+                    request.get('type', 0) if cmd == 28014 else 0)
                 resp_pb = encode_message(resp_cmd, values)
                 pushes = inventory_pushes(user) + [(28001, task_data(user)), (28019, task_points(user))]
                 if 'backhome' in user:
