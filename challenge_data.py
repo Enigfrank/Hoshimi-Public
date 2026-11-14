@@ -1,12 +1,15 @@
 """挑战玩法的本地排期与初始化；关卡取自安装包配置。"""
 
 from functools import lru_cache
+import random
 import time
 
 from gameplay_protocol import read_client_data
 from polyhedron_game import polyhedron_data
 from equip_exploration import exploration_pushes
 from battle_progress import progress, tower_progress
+from battle_rewards import spend_items
+from server_clock import business_day
 from activity_periods import period_settings, period_window
 
 
@@ -37,11 +40,17 @@ def challenge_catalog() -> dict:
         r.advance=rows('BossChallengeAdvanceCfg')
         r.advance_pool=rows('BossChallengeAdvancePoolCfg')
         r.seizure=require('BattleEquipSeizureStageCfg').all
-        r.enchant={}
+        r.enchant_groups={}
         local groups=require('StageGroupCfg')
         for _,id in ipairs(groups.all) do
-            if groups[id].type==8 and #r.enchant<3 then r.enchant[#r.enchant+1]=id end
+            if groups[id].type==8 then
+                r.enchant_groups[#r.enchant_groups+1]={id=id,level=groups[id].level,stage_list=groups[id].stage_list}
+            end
         end
+        local g=require('GameSetting')
+        r.enchant_free=g.fm_get_refresh_count.value[1]
+        r.enchant_buy_limit=g.fm_item_refresh_limit_count.value[1]
+        r.enchant_cost=g.fm_item_refresh_cost.value
         r.abyss=rows('AbyssCfg')
         r.core=rows('CoreVerificationInfoCfg')
         r.polyhedron=rows('PolyhedronHeroShelvesCfg')
@@ -51,10 +60,85 @@ def challenge_catalog() -> dict:
     end)()''')
 
 
+def _enchant_groups() -> list:
+    """返回全部联合特勤关卡组及其品级和关卡列表。"""
+    return challenge_catalog()['enchant_groups']
+
+
+def _enchant_levels() -> dict:
+    """关卡组 ID 到 B/A/S 品级的映射。"""
+    return {group['id']: group['level'] for group in _enchant_groups()}
+
+
+def _roll_enchant() -> list:
+    """随机抽取三个不重复的关卡组，并按品级排序后下发。"""
+    ids = [group['id'] for group in _enchant_groups()]
+    levels = _enchant_levels()
+    return sorted(random.sample(ids, 3), key=lambda group_id: levels[group_id])
+
+
+def _roll_enchant_slot(current: list, index: int) -> None:
+    """原地重掷该栏，保留槽位位置和其余两项。"""
+    candidates = [group['id'] for group in _enchant_groups() if group['id'] not in current]
+    if candidates:
+        current[index] = random.choice(candidates)
+
+
+def _enchant_state(user: dict, now: int | None = None) -> dict:
+    """跨业务日时重掷关卡组并恢复免费刷新次数。"""
+    now = int(time.time()) if now is None else now
+    state = user.setdefault('enchant', {})
+    day = business_day(now)
+    if state.get('day') != day or len(state.get('list', [])) != 3:
+        state.update({'day': day, 'free_used': 0, 'buy_used': 0, 'list': _roll_enchant()})
+    return state
+
+
+def validate_enchant_stage(user: dict, stage_id: int) -> None:
+    """拒绝不属于当日三个任务的联合特勤关卡。"""
+    selected = _enchant_state(user)['list']
+    if not any(group['id'] in selected and stage_id in group['stage_list']
+               for group in _enchant_groups()):
+        raise ValueError('联合特勤关卡不属于当前任务')
+
+
 def enchantment_data(user: dict) -> dict:
-    """下发联合特勤有效的三档关卡。"""
-    return {'free_refreshed_times': 0, 'all_buy_refreshed_times': 0,
-            'enchantment_battle_list': challenge_catalog()['enchant']}
+    """下发当日抽到的三个关卡组与剩余免费刷新次数。"""
+    state = _enchant_state(user)
+    return {'free_refreshed_times': max(0, challenge_catalog()['enchant_free'] - state['free_used']),
+            'all_buy_refreshed_times': state['buy_used'],
+            'enchantment_battle_list': state['list']}
+
+
+def refresh_enchantment(user: dict, refresh_type: int) -> list:
+    """校验免费或购买次数并扣移转之辉，重掷全部三个关卡组。"""
+    if refresh_type not in (1, 2):
+        raise ValueError('刷新类型无效')
+    state = _enchant_state(user)
+    catalog = challenge_catalog()
+    if refresh_type == 1:
+        if state['free_used'] >= catalog['enchant_free']:
+            raise ValueError('免费刷新次数已用完')
+        state['free_used'] += 1
+    else:
+        if state['buy_used'] >= catalog['enchant_buy_limit']:
+            raise ValueError('购买刷新次数已用完')
+        item_id, cost = catalog['enchant_cost'][state['buy_used']]
+        spend_items(user, [{'id': int(item_id), 'num': int(cost)}])
+        state['buy_used'] += 1
+    state['list'] = _roll_enchant()
+    return state['list']
+
+
+def refresh_enchant_slot(user: dict, stage_id: int) -> list | None:
+    """完成并领取特勤任务后原地重掷该栏，返回新列表或 None。"""
+    state = _enchant_state(user)
+    groups = {group['id']: group for group in _enchant_groups()}
+    for index, group_id in enumerate(state['list']):
+        if stage_id in groups[group_id]['stage_list']:
+            _roll_enchant_slot(state['list'], index)
+            return state['list']
+    return None
 
 
 def boss_area(user: dict, area_id=None) -> dict:

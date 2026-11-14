@@ -46,7 +46,7 @@ def progress_catalog() -> dict:
 
 
 def story_progress(user: dict) -> dict:
-    """剧情全解锁；普通账号只恢复实际星级，旧体验账号保留配置星级。"""
+    """恢复剧情星级及活动、联合特勤真实通关记录，供客户端判断扫荡资格。"""
     stages = {cfg['id']: cfg['star_count'] for cfg in progress_catalog()['story']}
     initial = user.get('account_template') == 'normal'
     rows = stage_progress(user, 1, list(stages), True)
@@ -55,7 +55,8 @@ def story_progress(user: dict) -> dict:
                             for i in (1, 2, 3)]
     for key, saved in user.get('battle_progress', {}).items():
         kind, stage_id = map(int, key.split(':'))
-        if kind == 601:
+        # 601 与联合特勤 8 需要回传真实通关次数，客户端据此解锁扫荡。
+        if kind in (8, 601):
             rows.append({'id': stage_id, 'clear_times': saved['clear_times'],
                          'star_list': [int(i in saved.get('stars', [])) for i in (1, 2, 3)]})
     return {'user_chapter_list': rows}

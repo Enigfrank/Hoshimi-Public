@@ -37,7 +37,8 @@ from supply_data import build_supply_goods
 from gameplay_data import build_gameplay_pushes, passport_data, equip_battle_data, battle_progress_pushes
 from gameplay_protocol import encode_message, decode_message, message_has_field
 from battle_data import start_battle, settle_battle, start_story
-from challenge_data import boss_data, enchantment_data, challenge_pushes
+from challenge_data import (boss_data, enchantment_data, challenge_pushes,
+                            refresh_enchantment)
 from battle_udp import BattleUDP
 from reserve_data import save_reserve, save_battle_team
 from profile_data import profile_data, profile_request, PROFILE_COMMANDS
@@ -905,7 +906,7 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 resp_extra = None
                 resp_pb = encode_message(resp_cmd, {'result': 1})
                 if cmd == 12046 and session and session.user_data:
-                    # 失败时也补发领取状态，避免客户端漏收登录推送后一直显示可领取。
+                    # 重连后若漏收 12045，客户端可能仍显示可领取；失败时补发状态纠正界面。
                     resp_extra = [(c, encode_message(c, v), 0, 0.0)
                                   for c, v in daily_pushes(session.user_data)]
         elif cmd in (28010, 28014, 28016):
@@ -1215,11 +1216,29 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
             resp_cmd, resp_pb = 43003, encode_message(43003, {"result": 0})
             resp_extra = [(43001, encode_message(43001, equip_battle_data(user)), 0, 0.0)]
         elif cmd in (42002, 42004):
-            values = enchantment_data(session.user_data if session else {})
+            from copy import deepcopy
             resp_cmd = 42001 if cmd == 42002 else 42005
-            if cmd == 42004:
-                values = {'result': 0, 'enchantment_battle_list': values['enchantment_battle_list']}
-            resp_pb = encode_message(resp_cmd, values)
+            try:
+                if not session or not session.user_data:
+                    raise ValueError('未登录')
+                user = deepcopy(session.user_data)
+                if cmd == 42002:
+                    values = enchantment_data(user)
+                else:
+                    request = decode_message(cmd, pb_payload)
+                    values = {'result': 0,
+                              'enchantment_battle_list': refresh_enchantment(
+                                  user, request['refresh_type'])}
+                resp_pb = encode_message(resp_cmd, values)
+                if cmd == 42004:
+                    resp_extra = [(c, encode_message(c, v), 0, 0.0)
+                                  for c, v in inventory_pushes(user)]
+                get_user_manager().save_user(user)
+                session.user_data = user
+            except (ValueError, KeyError) as error:
+                print(f'[联合特勤拒绝] {error}')
+                resp_extra = None
+                resp_pb = encode_message(resp_cmd, {} if cmd == 42002 else {'result': 1})
         elif cmd in (45202, 44010, 44016):
             user = session.user_data if session else {}
             request = decode_message(cmd, pb_payload)
@@ -1277,9 +1296,10 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 resp_pb = encode_message(resp_cmd, values)
                 resp_before = [(c, encode_message(c, v)) for c, v in pushes]
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in inventory_pushes(user)]
-                if request['common_info']['type'] == 2:
-                    # 资源关卡扫荡与普通结算一样刷新每日关卡次数，避免界面保留旧次数。
-                    resp_extra += battle_progress_pushes(user, 2)
+                stage_type = request['common_info']['type']
+                if stage_type in (2, 8):
+                    # 扫荡与普通结算一样刷新对应玩法进度，避免界面保留旧次数。
+                    resp_extra += battle_progress_pushes(user, stage_type)
                 resp_extra += [(c, encode_message(c, v), 0, 0.0) for c, v in
                                ((28001, task_data(user)), (28019, task_points(user)))]
                 get_user_manager().save_user(user)

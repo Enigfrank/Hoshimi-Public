@@ -105,6 +105,8 @@ def daily_request(user: dict, command: int, request: dict) -> dict:
         local_seconds = (now+8*3600)%86400
         if local_seconds < refresh_hour()*3600:
             local_seconds += 86400
+        # 客户端重连后若漏收 12045，会把已领取的时段继续显示为可领取。
+        # 仍拒绝重复发奖，由 server.py 的 12046 失败分支补发领取状态纠正界面。
         if not row or hour in state['fatigue_claimed'] or local_seconds < hour*3600:
             raise ValueError('体力领取时间未到或已领取')
         if user.get('stamina', 240)+row[2] > 999:

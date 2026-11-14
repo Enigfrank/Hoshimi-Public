@@ -11,11 +11,15 @@ MAX_SWEEP_TIMES = 10
 
 
 def sweep_battle(user: dict, request: dict) -> tuple[dict, list[tuple]]:
-    """执行允许扫荡的关卡，并返回结算数据与必须先到达的状态推送。"""
+    """校验扫荡资格，结算允许的关卡并返回前置状态推送。"""
     common = request['common_info']
     stage_type = common['type']
     if stage_type not in SWEEP_STAGE_TYPES:
         raise ValueError('该玩法不支持扫荡')
+    if stage_type == 8:
+        from battle_progress import progress
+        if not progress(user, 8, common['dest']).get('clear_times'):
+            raise ValueError('联合特勤关卡通关后才能扫荡')
     scroll_state = None
     activity_id = common.get('activity_id', 0)
     if stage_type == 61:

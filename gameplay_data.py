@@ -156,7 +156,7 @@ def build_gameplay_pushes(user: dict) -> list[tuple]:
 
 
 def battle_progress_pushes(user: dict, stage_type: int) -> list[tuple]:
-    """结算只同步当前玩法进度，虚构推演在此附带战斗结果通知。"""
+    """同步当前玩法进度，联合特勤附带任务列表，虚构推演附带结果通知。"""
     from battle_progress import story_progress
     from equip_exploration import exploration_pushes
     from hero_oath import assignment_pushes
@@ -180,6 +180,9 @@ def battle_progress_pushes(user: dict, stage_type: int) -> list[tuple]:
     elif stage_type == 93:
         from neural_matrix import neural_data, neural_state
         data = [(89801, neural_data(user)), (89811, {'score': neural_state(user)['last_score']})]
+    elif stage_type == 8:
+        from challenge_data import enchantment_data
+        data = [(24009, story_progress(user)), (42001, enchantment_data(user))]
     elif stage_type == 2:
         data = [(25009, {'daily_battle_list': [{'id': v['id'], 'clear_times': v['clear_times']}
                  for v in stage_progress(user, 2, catalog['resources'], True)]})]

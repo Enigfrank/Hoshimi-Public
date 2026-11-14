@@ -74,8 +74,11 @@ def stage_config(stage_type: int, stage_id: int) -> dict:
 
 
 def start_battle(user: dict, request: dict, max_times: int = 5) -> tuple[dict, dict]:
-    """校验关卡和所选角色，并下发与存档一致的战斗队伍；扫荡可放宽倍率上限。"""
+    """校验当前关卡和所选角色，下发存档队伍；扫荡可放宽倍率上限。"""
     common = deepcopy(request['common_info'])
+    if common['type'] == 8:
+        from challenge_data import validate_enchant_stage
+        validate_enchant_stage(user, common['dest'])
     if common['type'] == 35:
         from challenge_data import challenge_catalog
         difficulty = user.get('mythic_final_difficulty', 1)
@@ -242,7 +245,7 @@ def start_story(request: dict, user: dict | None = None) -> dict:
 
 
 def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
-    """根据 native 实际结果结算一次；重复请求返回同一结果。"""
+    """结算实际战果及一次性任务换新；重复请求返回已保存的结果。"""
     if not battle or battle['id'] != battle_id:
         raise ValueError('战斗 ID 不匹配')
     if battle.get('period_expired'):
@@ -262,6 +265,12 @@ def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
     info = report['info']
     common = battle['common']
     win = result == 1
+    if common['type'] == 8 and win:
+        from challenge_data import validate_enchant_stage
+        from server_clock import business_day
+        if business_day(battle['started']) != business_day(int(time.time())):
+            raise ValueError('联合特勤任务已跨日，请重新进入战斗')
+        validate_enchant_stage(user, common['dest'])
     if common['type'] == 92:
         from resident_hodur import hodur_serial
         if not battle.get('hodur'):
@@ -369,6 +378,9 @@ def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
     if common['type'] == 52:
         from polyhedron_game import settle_polyhedron
         settle_polyhedron(user, battle)
+    if common['type'] == 8 and win:
+        from challenge_data import refresh_enchant_slot
+        refresh_enchant_slot(user, common['dest'])
     battle['settlement'] = {'result': 0, 'battle_result': {
         'battle_id': battle_id, 'result': result, 'dest': common['dest'], 'timestamp': int(time.time()),
         'clear_times': progress['clear_times'], 'target_times': times, 'use_seconds': seconds,
