@@ -3,6 +3,7 @@ import os
 import struct
 import time
 from pathlib import Path
+from typing import Any
 
 from currency_data import NATIVE_CURRENCY_IDS, MATERIAL_TOKEN_IDS, build_currency_balances
 

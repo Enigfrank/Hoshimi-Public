@@ -73,8 +73,8 @@ def stage_config(stage_type: int, stage_id: int) -> dict:
     return read_client_data(f"require('{name}')[{int(stage_id)}] or {{}}")
 
 
-def start_battle(user: dict, request: dict) -> tuple[dict, dict]:
-    """校验关卡和所选角色，并下发与存档一致的战斗队伍。"""
+def start_battle(user: dict, request: dict, max_times: int = 5) -> tuple[dict, dict]:
+    """校验关卡和所选角色，并下发与存档一致的战斗队伍；扫荡可放宽倍率上限。"""
     common = deepcopy(request['common_info'])
     if common['type'] == 35:
         from challenge_data import challenge_catalog
@@ -113,8 +113,8 @@ def start_battle(user: dict, request: dict) -> tuple[dict, dict]:
             cfg = stage_config(common['type'], actual_dest)
     if not cfg:
         raise ValueError('关卡不存在或尚未实现对应玩法')
-    times = common.get('battle_times', 1)
-    if not 1 <= times <= 5:
+    times = common.get('battle_times') or 1
+    if not 1 <= times <= max_times:
         raise ValueError('战斗倍率无效')
     cost = battle_cost(cfg)
     amount = cost['num'] * times
@@ -193,7 +193,7 @@ def start_battle(user: dict, request: dict) -> tuple[dict, dict]:
     battle_id = max(next(_BATTLE_IDS), user.get('last_battle_id', 0)+1)
     user['last_battle_id'] = battle_id
     battle = {'id': battle_id, 'started': now, 'common': common, 'config': cfg,
-              'reported': None, 'settlement': None}
+              'reported': None, 'settlement': None, 'max_times': max_times}
     if common['type'] == 78:
         battle['rogue_serial'] = user['rogue_team']['run']['serial']
     if common['type'] == 92:
@@ -313,7 +313,7 @@ def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
     progress_dest = battle['config']['id'] if common['type'] == 74 and common['dest'] == 0 else common['dest']
     key = f"{common['type']}:{progress_dest}"
     progress = user.setdefault('battle_progress', {}).setdefault(key, {'clear_times': 0, 'stars': []})
-    times = max(1, min(common.get('battle_times', 1), 5))
+    times = max(1, min(common.get('battle_times') or 1, battle.get('max_times', 5)))
     if win:
         cost = battle_cost(battle['config'])
         cost['num'] *= times
@@ -353,16 +353,28 @@ def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
             from equip_exploration import complete_node, update_health
             update_health(user, info.get('characters', []))
             complete_node(user, common['index'])
-    gains = roll_drops(drop_config(battle['config'].get('drop_lib_id', 0)), times) if win and common['type'] != 89 else []
-    gains += battle.get('resident_rewards', [])
+    resident_rewards = battle.get('resident_rewards', [])
+    drop_runs = []
+    if win and common['type'] != 89:
+        drop_table = drop_config(battle['config'].get('drop_lib_id', 0))
+        drop_runs = [roll_drops(drop_table, 1) for _ in range(times)]
+    gains = [gain for run in drop_runs for gain in run] + resident_rewards
     if gains:
         grant_rewards(user, gains)
+    if resident_rewards:
+        if drop_runs:
+            drop_runs[0].extend(resident_rewards)
+        else:
+            drop_runs = [list(resident_rewards)]
     if common['type'] == 52:
         from polyhedron_game import settle_polyhedron
         settle_polyhedron(user, battle)
     battle['settlement'] = {'result': 0, 'battle_result': {
         'battle_id': battle_id, 'result': result, 'dest': common['dest'], 'timestamp': int(time.time()),
         'clear_times': progress['clear_times'], 'target_times': times, 'use_seconds': seconds,
-        'star_list': stars, 'all_drop_list': [{'battle_times': times, 'gain_list': gains}],
+        'star_list': stars,
+        'all_drop_list': ([{'battle_times': index, 'gain_list': run}
+                           for index, run in enumerate(drop_runs, 1)]
+                          if drop_runs else [{'battle_times': times, 'gain_list': []}]),
         'hero_id_list': [h['hero_id'] for h in common['hero_list'] if h['hero_id']]}}
     return battle['settlement']
