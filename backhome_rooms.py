@@ -22,9 +22,14 @@ def owned_room(user: dict, room_id: int) -> dict:
 
 
 def valid_position(position: int) -> bool:
-    """楼层位置按客户端101起编号，首层七间、其余每层十一间。"""
-    floor, slot = divmod(position, 100)
-    return 1 <= floor <= backhome_catalog()['settings']['floor_max'] and 1 <= slot <= (7 if floor == 1 else 11)
+    """按客户端连续编号校验：101 为初始房间，102-108 首层七间，之后每层十一间。"""
+    if position == 101:
+        return True
+    if 102 <= position <= 108:
+        return True
+    if position < 109:
+        return False
+    return (position - 109) // 11 + 2 <= backhome_catalog()['settings']['floor_max']
 
 
 def layout_counts(rows: list) -> dict:

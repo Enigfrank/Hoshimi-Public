@@ -59,7 +59,7 @@ def client_filled_shop_ids() -> set[int]:
 
 @lru_cache(maxsize=8192)
 def shop_good(good_id: int, shop_id: int) -> dict:
-    """只返回实际已下发到指定商店的商品配置，含客户端自动补货条目。"""
+    """返回该商店已配置的商品；本地服不按官服刷新批次隐藏商品。"""
     if good_id >= 900000000:
         description = good_id - 900000000
         entry = SUPPLY_DEFINITIONS.get(description)
@@ -67,16 +67,12 @@ def shop_good(good_id: int, shop_id: int) -> dict:
             return {'goods_id': good_id, 'description': description, 'shop_id': shop_id,
                     'cost_id': 1, 'cost': 1, 'limit_num': -1, 'give': 1}
         return {}
-    if good_id not in SHOP_GOODS_NOREFRESH.get(shop_id, []) and good_id not in skin_shop_goods().get(shop_id, []) \
-            and shop_id not in client_filled_shop_ids():
-        return {}
     cfg = shop_catalog().get(str(good_id), {})
     if not cfg:
         return {}
-    if cfg.get('shop_refresh') != 2 and good_id not in SHOP_GOODS_NOREFRESH.get(shop_id, []) \
+    if int(cfg.get('shop_id', 0)) != shop_id \
+            and good_id not in SHOP_GOODS_NOREFRESH.get(shop_id, []) \
             and good_id not in skin_shop_goods().get(shop_id, []):
-        return {}
-    if cfg.get('shop_refresh') == 2 and (cfg.get('shop_id') != shop_id or cfg.get('taken_down', 0)):
         return {}
     return cfg
 
@@ -119,11 +115,6 @@ def buy_goods(user: dict, request: dict) -> dict:
                 prerequisite = shop_good(previous, shop_id)
                 if not prerequisite or purchases.get(str(previous), 0) < prerequisite['limit_num']:
                     raise ValueError('请先购完前一档皮肤票券')
-        for kind, need in cfg.get('level_limit') or []:
-            from passport_progress import passport_level
-            current = user.get('level', 80) if kind == 1 else passport_level(user)
-            if current < need:
-                raise ValueError('等级不足')
         bought = purchases.get(str(row['buy_id']), 0)
         if cfg.get('limit_num', -1) > 0 and bought + count > cfg['limit_num']:
             raise ValueError('超出商品限购次数')

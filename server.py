@@ -27,6 +27,7 @@ import protocol_coverage
 from push_data import SHOP_GOODS_NOREFRESH
 from currency_data import build_currency_balances, materialize_currencies
 from sign_progress import SIGN_COMMANDS, sign_request, sign_pushes, initialize_sign
+from big_month_card import BIG_MONTH_CARD_COMMANDS, big_month_card_data, big_month_card_request
 from account_unlocks import unlock_developer, illustrated_data, scene_view_data
 from communications import MAIL_COMMANDS, mail_request, mail_brief, mail_list, announcement_data
 from chapter_maps import CHAPTER_MAP_COMMANDS, CHAPTER_ONEWAY_COMMANDS, chapter_map_request, chapter_map_pushes
@@ -436,11 +437,11 @@ def handle_native_battle(packet: bytes, context: dict) -> list[bytes]:
             user['battle_session'] = current.battle
             get_user_manager().save_user(user)
         print(f"[战斗上报] ID={battle_id} 结果={values[3][0]}")
-        return [reply(134, native_int(1, 0)), pack_packet(135, native_int(1, 0))[2:]]
+        return [pack_packet(135, native_int(1, 1))[2:], reply(134, b'')]
     return []
 
 def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=None, session: Optional[ClientSession] = None) -> bytes | None:
-    """处理 ET 请求与内嵌游戏协议，先恢复玩法状态再下发战斗成功响应。"""
+    """处理 ET 与玩法请求；百宝囊全部响应编码后保存，购买先同步状态。"""
     if opcode == 100:  # Op_ping -> Op_pong
         c_time = decode_ping(body)
         s_time = int(time.time() * 1000)
@@ -734,6 +735,30 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                     return None
                 resp_extra = None
                 resp_pb = encode_message(resp_cmd, {'result': 1}) if cmd not in (30002, 30006, 30020) else encode_message(resp_cmd, {})
+        elif cmd in BIG_MONTH_CARD_COMMANDS:
+            from copy import deepcopy
+            resp_cmd = cmd + 1
+            try:
+                if not session or not session.user_data:
+                    raise ValueError('未登录')
+                user = deepcopy(session.user_data)
+                values = big_month_card_request(user, cmd, decode_message(cmd, pb_payload))
+                resp_pb = encode_message(resp_cmd, values)
+                resp_extra = ([(c, encode_message(c, v), 0, 0.0) for c, v in inventory_pushes(user)]
+                              if cmd in (34110, 34114, 34118) else [])
+                if cmd == 34114 and values.get('result') == 0:
+                    # 购买回调会立即刷新页面，34101 必须先于 34115 更新 buy_timestamp。
+                    resp_before = [(34101, encode_message(34101, big_month_card_data(user)))]
+                if cmd in (34110, 34118):
+                    # 每日回调会清空奖池记录；回调后恢复状态，同时保留累计奖励动画。
+                    resp_extra.append((34101, encode_message(34101, big_month_card_data(user)), 0, 0.0))
+                get_user_manager().save_user(user)
+                session.user_data = user
+            except ValueError as error:
+                print(f'[百宝囊拒绝] 指令={cmd} {error}')
+                resp_before = []
+                resp_extra = None
+                resp_pb = encode_message(resp_cmd, {'result': 1})
         elif cmd in NEURAL_COMMANDS:
             from copy import deepcopy
             resp_cmd = cmd + 1
@@ -839,9 +864,9 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 from shop_transactions import home_purchase_pushes
                 pushes = home_purchase_pushes(user, values)
                 if pushes is None:
-                    pushes = inventory_pushes(user) + [(20009, shop_stock(user)),
-                        (14009, hero_info_data(user)), (46011, servant_data(user)),
-                        (32009, profile_data(user))]
+                    # 客户端会按购买结果更新限购次数；全量 20009 会重建商店并丢失返回按钮。
+                    pushes = inventory_pushes(user) + [(14009, hero_info_data(user)),
+                        (46011, servant_data(user)), (32009, profile_data(user))]
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in pushes]
                 get_user_manager().save_user(user)
                 session.user_data = user

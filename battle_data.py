@@ -250,7 +250,7 @@ def start_story(request: dict, user: dict | None = None) -> dict:
 
 
 def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
-    """结算实际战果与深阱候选战果；重置旧会话拒绝，重复结算返回已存结果。"""
+    """结算本次通关次数与实际战果；重复结算返回存档，失败不计通关。"""
     if not battle or battle['id'] != battle_id:
         raise ValueError('战斗 ID 不匹配')
     if battle.get('period_expired'):
@@ -392,12 +392,18 @@ def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
     if common['type'] == 8 and win:
         from challenge_data import refresh_enchant_slot
         refresh_enchant_slot(user, common['dest'])
+    reported_heroes = [int(row.get('1', 0)) for row in info.get('characters', [])
+                       if int(row.get('1', 0) or 0)]
+    if common['type'] == 2 and len(reported_heroes) == 3:
+        # 类型 2 的三人队伍主控/队长在客户端队伍中间；其它模式保持原顺序，
+        # 避免特殊预设队伍（主控不在中间）被误重排。
+        reported_heroes = [reported_heroes[1], reported_heroes[0], reported_heroes[2]]
     battle['settlement'] = {'result': 0, 'battle_result': {
         'battle_id': battle_id, 'result': result, 'dest': common['dest'], 'timestamp': int(time.time()),
-        'clear_times': progress['clear_times'], 'target_times': times, 'use_seconds': seconds,
+        'clear_times': times if win else 0, 'target_times': times, 'use_seconds': seconds,
         'star_list': stars,
         'all_drop_list': ([{'battle_times': index, 'gain_list': run}
                            for index, run in enumerate(drop_runs, 1)]
                           if drop_runs else [{'battle_times': times, 'gain_list': []}]),
-        'hero_id_list': [h['hero_id'] for h in common['hero_list'] if h['hero_id']]}}
+        'hero_id_list': reported_heroes or [h['hero_id'] for h in common['hero_list'] if h['hero_id']]}}
     return battle['settlement']

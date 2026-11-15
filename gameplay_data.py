@@ -128,6 +128,7 @@ def build_gameplay_pushes(user: dict) -> list[tuple]:
     from admin_cat_explore import explore_data
     from neural_matrix import neural_data
     from rogue_team import rogue_pushes
+    from big_month_card import big_month_card_pushes
     now = int(time.time())
     catalog = client_catalog()
     data = [
@@ -135,6 +136,7 @@ def build_gameplay_pushes(user: dict) -> list[tuple]:
         (67001, explore_data(user)),
         (89801, neural_data(user)),
         *daily_pushes(user),
+        *big_month_card_pushes(user),
         (28001, task_data(user)),
         (28019, task_points(user)),
         (25009, {"daily_battle_list": [{"id": v['id'], "clear_times": v['clear_times']}
