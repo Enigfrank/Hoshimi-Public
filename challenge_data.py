@@ -333,7 +333,8 @@ def core_data(user: dict) -> dict:
 
 
 def challenge_pushes(user: dict) -> list[tuple]:
-    """初始化黑区、深阱、梦境、迭代和刻印挑战的页面依赖。"""
+    """初始化挑战页面；深阱使用独立的层级及首领持久化状态。"""
+    from abyss import abyss_data
     c = challenge_catalog()
     refresh = int(time.time()) + 7*86400
     normal = next((x for x in c['mythic'] if x['id'] == user.get('mythic_difficulty', 1)), c['mythic'][0])
@@ -347,21 +348,9 @@ def challenge_pushes(user: dict) -> list[tuple]:
                              'main_partition': {'partition': x['main_partition'], 'stage_id': stages[0]},
                              'sub_partition_list': [{'partition': id, 'stage_id': stages[(i+1) % len(stages)]}
                                                     for i, id in enumerate(x['sub_partition_list'])]})
-    abyss = [x for x in c['abyss'] if x['activity_id'] == c['abyss'][0]['activity_id']]
-    layers = []
-    for x in abyss:
-        layers.append({'layer_id': x['level'],
-                       'stage_info_list': [{'stage_id': s[1], 'is_completed': bool(progress(user,1003,s[1]).get('clear_times'))}
-                                           for s in x['stage_list'] if s[0] != 3],
-                       'boss_stage_info_list': [{'stage_id': s[1], 'is_completed': bool(progress(user,1003,s[1]).get('clear_times')),
-                                                'boss_hp_rate': 0 if progress(user,1003,s[1]).get('clear_times') else 10000}
-                                                for s in x['stage_list'] if s[0] == 3]})
     initial = user.get('account_template') == 'normal'
     unlocked_mythic = ([c['mythic'][0]['id']] if initial else [x['id'] for x in c['mythic']] + [1001])
     unlocked_final = [c['final'][0]['id']] if initial else [x['id'] for x in c['final']]
-    completed_layers = [x['level'] for x in abyss
-                        if all(progress(user, 1003, s[1]).get('clear_times') for s in x['stage_list'])]
-    history_layer = max(completed_layers, default=0) if initial else len(layers)
     return [
         (42001, enchantment_data(user)),
         *exploration_pushes(user),
@@ -386,9 +375,7 @@ def challenge_pushes(user: dict) -> list[tuple]:
                  'challenge_info': [{'team_id': i, 'clear_state': int(all(s in runs.get(str(i), {}).get('stages', []) for s in stages)),
                                      'use_time': runs.get(str(i), {}).get('use_time', 0)}
                                     for i, stages in enumerate(final['stage_list'], 1)]}),
-        (55001, {'activity_id': abyss[0]['activity_id'], 'is_back': False, 'history_max_layer': history_layer,
-                 'last_version_max_unlock_layer': min(len(layers), history_layer + 1) if initial else len(layers), 'refresh_timestamp': refresh,
-                 'layer_info_list': layers, 'got_layer_reward_list': user.get('abyss_rewards', [])}),
+        (55001, abyss_data(user)),
         (75009, core_data(user)),
         (18001, polyhedron_data(user)),
         *([(18005, {'end_info': user['polyhedron_settlement']})]

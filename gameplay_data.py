@@ -156,11 +156,16 @@ def build_gameplay_pushes(user: dict) -> list[tuple]:
 
 
 def battle_progress_pushes(user: dict, stage_type: int) -> list[tuple]:
-    """同步当前玩法进度，联合特勤附带任务列表，虚构推演附带结果通知。"""
+    """同步玩法进度；深阱同时恢复首领阶段及已提交的队伍占用。"""
     from battle_progress import story_progress
     from equip_exploration import exploration_pushes
     from hero_oath import assignment_pushes
     from hero_training_progress import training_battle_pushes
+    if stage_type == 1003:
+        from abyss import abyss_data
+        data = [(55001, abyss_data(user)), (63005, reserve_data(user))]
+        data += training_battle_pushes(user) + assignment_pushes(user)
+        return [(cmd, encode_message(cmd, values), 0, 0.0) for cmd, values in data]
     if stage_type == 78:
         from rogue_team import rogue_pushes
         return [(cmd, encode_message(cmd, values), 0, 0.0)

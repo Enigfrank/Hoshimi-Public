@@ -74,8 +74,11 @@ def stage_config(stage_type: int, stage_id: int) -> dict:
 
 
 def start_battle(user: dict, request: dict, max_times: int = 5) -> tuple[dict, dict]:
-    """校验当前关卡和所选角色，下发存档队伍；扫荡可放宽倍率上限。"""
+    """校验当前关卡、深阱角色占用及所选队伍；扫荡可放宽倍率上限。"""
     common = deepcopy(request['common_info'])
+    if common['type'] == 1003:
+        from abyss import prepare_abyss_battle
+        abyss = prepare_abyss_battle(user, common)
     if common['type'] == 8:
         from challenge_data import validate_enchant_stage
         validate_enchant_stage(user, common['dest'])
@@ -197,6 +200,8 @@ def start_battle(user: dict, request: dict, max_times: int = 5) -> tuple[dict, d
     user['last_battle_id'] = battle_id
     battle = {'id': battle_id, 'started': now, 'common': common, 'config': cfg,
               'reported': None, 'settlement': None, 'max_times': max_times}
+    if common['type'] == 1003:
+        battle['abyss'] = abyss
     if common['type'] == 78:
         battle['rogue_serial'] = user['rogue_team']['run']['serial']
     if common['type'] == 92:
@@ -245,11 +250,14 @@ def start_story(request: dict, user: dict | None = None) -> dict:
 
 
 def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
-    """结算实际战果及一次性任务换新；重复请求返回已保存的结果。"""
+    """结算实际战果与深阱候选战果；重置旧会话拒绝，重复结算返回已存结果。"""
     if not battle or battle['id'] != battle_id:
         raise ValueError('战斗 ID 不匹配')
     if battle.get('period_expired'):
         raise ValueError('玩法周期已刷新，请重新进入战斗')
+    if battle['common']['type'] == 1003:
+        from abyss import validate_abyss_settlement
+        validate_abyss_settlement(user, battle)
     if battle['common']['type'] == 78:
         from rogue_team import validate_rogue_battle
         validate_rogue_battle(user, battle)
@@ -378,6 +386,9 @@ def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
     if common['type'] == 52:
         from polyhedron_game import settle_polyhedron
         settle_polyhedron(user, battle)
+    if common['type'] == 1003:
+        from abyss import settle_abyss_battle
+        settle_abyss_battle(user, battle, seconds)
     if common['type'] == 8 and win:
         from challenge_data import refresh_enchant_slot
         refresh_enchant_slot(user, common['dest'])

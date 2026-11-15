@@ -8,11 +8,14 @@ from challenge_data import (boss_area, boss_group_ids, challenge_catalog,
                             rogue_score_reward_ids, rogue_selection_catalog)
 
 CHALLENGE_COMMANDS = {44012, 44024, 44026, 44028, 45004, 45006, 45104,
-                      45108, 45110, 45204, 55002, 55004, 55006, 88100, 88316}
+                      45108, 45110, 45204, 55002, 55004, 55006, 55012, 55020, 88100, 88316}
 
 
 def challenge_request(user: dict, command: int, request: dict) -> dict:
-    """按真实通关记录领取奖励，迭代积分档位按客户端模板编号校验。"""
+    """按真实通关记录领奖；深阱交由独立状态处理战果、重置和历史奖励。"""
+    if command in (55002, 55004, 55006, 55012, 55020):
+        from abyss import abyss_request
+        return abyss_request(user, command, request)
     catalog = challenge_catalog()
     rewards = []
     response = {'result': 0}
@@ -88,29 +91,6 @@ def challenge_request(user: dict, command: int, request: dict) -> dict:
             if len(heroes) > 3 or any(h and h not in {x['id'] for x in user['heroes']} for h in heroes):
                 raise ValueError('梦境编队角色无效')
             user.setdefault('boss_teams', {})[str(group)] = list(heroes)
-    elif command in (55002, 55004, 55006):
-        layers = [c for c in catalog['abyss'] if c['activity_id'] == catalog['abyss'][0]['activity_id']]
-        if command in (55002, 55004):
-            stages = [s[1] for c in layers for s in c['stage_list'] if command == 55004 or c['level'] == request['layer']]
-            if command == 55004:
-                stages = [s for s in stages if s == request['stage_id']]
-            if not stages:
-                raise ValueError('深阱层级或关卡不存在')
-            for stage in stages:
-                user.get('battle_progress', {}).pop(f'1003:{stage}', None)
-        else:
-            ids = request['layer_list']
-            claimed = user.setdefault('abyss_rewards', [])
-            if not ids or len(set(ids)) != len(ids):
-                raise ValueError('深阱领奖列表无效')
-            configs = []
-            for layer in ids:
-                cfg = next((c for c in layers if c['level'] == layer), None)
-                if not cfg or layer in claimed or any(not progress(user,1003,s[1]).get('clear_times') for s in cfg['stage_list']):
-                    raise ValueError('深阱未通关或已领取')
-                configs.append(cfg)
-            rewards = [{'id': i, 'num': n} for cfg in configs for i, n in cfg['reward_list']]
-            claimed.extend(ids)
     elif command == 45204:
         user['boss_teams'] = {}
         user['boss_affixes'] = {}

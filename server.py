@@ -981,7 +981,14 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 user = deepcopy(session.user_data)
                 values = challenge_request(user, cmd, decode_message(cmd, pb_payload))
                 resp_pb = encode_message(resp_cmd, values)
-                pushes = inventory_pushes(user) + challenge_pushes(user)
+                if 55000 <= cmd < 55100:
+                    from abyss import abyss_data
+                    from reserve_data import reserve_data
+                    pushes = [(55001, abyss_data(user)), (63005, reserve_data(user))]
+                    if cmd == 55006:
+                        pushes = inventory_pushes(user) + pushes
+                else:
+                    pushes = inventory_pushes(user) + challenge_pushes(user)
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in pushes]
                 get_user_manager().save_user(user)
                 session.user_data = user
@@ -1322,6 +1329,10 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 resp_pb = encode_message(resp_cmd, values)
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in inventory_pushes(user)]
                 resp_extra += battle_progress_pushes(user, battle['common']['type'])
+                if battle['common']['type'] == 1003:
+                    # 结算回调立即读取深阱分数和首领阶段，必须先到达客户端。
+                    resp_before = [(c, pb) for c, pb, _, _ in resp_extra if c == 55001]
+                    resp_extra = [push for push in resp_extra if push[0] != 55001]
                 if battle['common']['type'] == 78:
                     resp_before = [(c, pb) for c, pb, _, _ in resp_extra if 88000 <= c < 88400]
                     resp_extra = [push for push in resp_extra if not 88000 <= push[0] < 88400]
