@@ -55,6 +55,13 @@ local function setting(id)
 end
 -- 取局内属性，未覆盖的属性使用当前配置默认值。
 local function attr(id) return r.attrs[tostring(id)] or cfg('RogueTeamAttributeCfg',id).default end
+-- 安全屋每次进入补充一次招募次数；恢复旧存档中的安全屋事件时也要补齐。
+local function replenish_safe_house(event_id)
+    event_id=event_id or (r and r.event and r.event.event_id)
+    if r and event_id==50010 and attr(8)==0 then
+        r.attrs['8']=cfg('RogueTeamAttributeCfg',8).default
+    end
+end
 -- 在配置范围内修改属性，消费不足时拒绝整个请求。
 local function change(id,delta)
     local value=attr(id)+delta;assert(value>=0,'局内资源不足')

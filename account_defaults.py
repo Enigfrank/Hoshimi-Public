@@ -1,6 +1,7 @@
 """普通新账号与新获得角色的初始数据，不向既有账号补发解锁。"""
 
 from functools import lru_cache
+import time
 
 from gameplay_protocol import read_client_data
 
@@ -68,7 +69,9 @@ def new_account_defaults() -> dict:
                         'chat_bubble_list': [{'id': cfg['bubble'], 'lasted_time': 0, 'obtain_time': 0}],
                         'chat_bubble': cfg['bubble'], 'information_background_id': cfg['card'],
                         'sticker_background': cfg['sticker']},
-            'finished_guides': list(cfg['guides']), 'finished_weak_guides': list(cfg['weak_guides'])}
+            'finished_guides': list(cfg['guides']), 'finished_weak_guides': list(cfg['weak_guides']),
+            'passport_pay_level': 1, 'passport_rewards': [], 'passport_weekly_exp': 0,
+            'monthly_card': {'num': 1, 'timestamp': int(time.time()) + 30 * 86400, 'last_sign_day': 0}}
 
 
 @lru_cache(maxsize=1)

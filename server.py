@@ -28,6 +28,7 @@ from push_data import SHOP_GOODS_NOREFRESH
 from currency_data import build_currency_balances, materialize_currencies
 from sign_progress import SIGN_COMMANDS, sign_request, sign_pushes, initialize_sign
 from big_month_card import BIG_MONTH_CARD_COMMANDS, big_month_card_data, big_month_card_request
+from monthly_card import MONTHLY_CARD_COMMANDS, monthly_card_request
 from account_unlocks import unlock_developer, illustrated_data, scene_view_data
 from communications import MAIL_COMMANDS, mail_request, mail_brief, mail_list, announcement_data
 from chapter_maps import CHAPTER_MAP_COMMANDS, CHAPTER_ONEWAY_COMMANDS, chapter_map_request, chapter_map_pushes
@@ -759,6 +760,22 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 resp_before = []
                 resp_extra = None
                 resp_pb = encode_message(resp_cmd, {'result': 1})
+        elif cmd in MONTHLY_CARD_COMMANDS:
+            from copy import deepcopy
+            resp_cmd = 34025
+            try:
+                if not session or not session.user_data:
+                    raise ValueError('未登录')
+                user = deepcopy(session.user_data)
+                values = monthly_card_request(user)
+                get_user_manager().save_user(user)
+                session.user_data = user
+                resp_pb = encode_message(resp_cmd, values)
+                resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in inventory_pushes(user)]
+            except ValueError as error:
+                print(f'[月卡拒绝] 指令={cmd} {error}')
+                resp_extra = None
+                resp_pb = encode_message(resp_cmd, {'result': 1})
         elif cmd in NEURAL_COMMANDS:
             from copy import deepcopy
             resp_cmd = cmd + 1
@@ -1037,8 +1054,8 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 if cmd in SERVANT_COMMANDS:
                     resp_extra.extend((c, encode_message(c, v), 0, 0.0)
                                       for c, v in servant_pushes(session.user_data, user))
-                    if cmd == 46030:
-                        # 唤名回调立即读取新 UID，必须先将新钥从送达客户端。
+                    if cmd in (46030, 46032):
+                        # 唤名和分解回调会立即按客户端钥从缓存重建列表，先同步增删。
                         resp_before = [(c, pb) for c, pb, _, _ in resp_extra if c in (17023, 46011)]
                         resp_extra = [p for p in resp_extra if p[0] not in (17023, 46011)]
                 get_user_manager().save_user(user)
