@@ -41,7 +41,6 @@ option_plan=function(id)
     elseif id==400501 then plan.next_id=40050+random(6)
     elseif id==200501 then plan.cost={1,30};plan.next_id=20051
     elseif id==200502 then plan.cost={6,120};plan.next_id=20052
-    elseif id==500102 then plan.recruit=true;plan.next_id=nil
     elseif id==100401 then plan.coin=random(4)==1 and 200 or 50
     elseif id==100802 then
         local ids=pool(3,0,{1,2});if #ids>0 then plan.items[1]={id=pick(ids),rare=1};plan.random_remove=random(2)==1 end
@@ -68,7 +67,6 @@ choose_option=function(id,plan)
     if type(params)=='table' and params[1]==1 then effects(params[2],1,0) end
     if plan.coin then change(6,plan.coin) end
     if plan.hp then heal(plan.hp) end
-    if plan.recruit then assert(attr(8)>0,'招募次数不足');offer(3,{},1) end
     for _,item in ipairs(plan.items) do
         if plan.remove then remove_item(item.id) else obtain(item.id,item.rare,0) end
     end

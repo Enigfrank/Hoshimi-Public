@@ -43,12 +43,23 @@ def daily_state(user: dict, now: int | None = None) -> dict:
 
 
 def newbie_data(user: dict) -> dict:
-    """恢复当前新手版本的签到、等级领奖和任务阶段。"""
+    """恢复当前新手版本的签到、等级领奖、充值状态和任务阶段。"""
     state = user.get('newbie', {})
     return {'completed_time': state.get('completed_time', 0), 'max_phase': state.get('max_phase', 1),
         'version_id': 3, 'trigger_time': state.get('trigger_time', user.get('created_at', int(time.time()))),
         'newbie_sign': state.get('sign', {'now_sign_times': 0, 'last_sign_timestamp': 0}),
         'newbie_level_reward': {'received_level_list': state.get('levels', [])},
+        'newbie_recharge_reward': {
+            'first_recharge_reward': {
+                'first_gear_recharge_reward': 2, 'second_gear_recharge_flag': True,
+                'now_sign_times': 0, 'last_sign_timestamp': 0,
+                'is_new_recharge_6': False, 'is_new_recharge_18': False},
+            'first_monthly_card_reward': {
+                'flag': True, 'role_reward_flag': True, 'sign_times': 30,
+                'sign_reward_flag': True, 'is_new_tag_role_reward': False,
+                'is_new_tag_sign_reward': False},
+            'first_battlepass_reward': {
+                'first_battlepass_reward': 2, 'is_new_battlepass_reward': False}},
         'got_pt_id_list': state.get('pt_rewards', [])}
 
 

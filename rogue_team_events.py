@@ -176,6 +176,7 @@ effects=function(ids,moment,depth,source,source_type)
                 local ids={};for _,t in ipairs(r.treasures) do if t.rare<4 then ids[#ids+1]=t.id end end
                 for _,item in ipairs(choices(ids,p[2] or 1)) do local t=treasure(item);t.rare=math.min(4,t.rare+(p[1] or 1));item_push(item,t.rare,3) end
             elseif a==17 then
+                replenish_safe_house()
                 assert(attr(8)>0,'招募次数不足');offer(3,{},1)
             elseif a==19 then r.switch=2
             elseif a==20 then r.switch=3
@@ -231,6 +232,7 @@ local function refresh_unlocks()
 end
 -- 构造事件选项，只下发满足服务端条件的可用选项。
 local function event(id)
+    replenish_safe_house(id)
     local c=cfg('RogueTeamEventCfg',id);r.event_id=id;r.event_plans={};collect(2,id);unique(r.visits,id)
     local options=arr()
     for _,id in ipairs(type(c.option_list)=='table' and c.option_list or {}) do

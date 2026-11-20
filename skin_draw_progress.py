@@ -34,14 +34,25 @@ def weighted_drop(state: dict, drops: list[dict]) -> dict:
 
 
 def prepare_round(state: dict, pool: dict) -> None:
-    """翻牌每轮随机指定一个核心保底，已有未完成轮次原样恢复。"""
+    """已完成一轮时重新指定核心保底，保留当前页未翻完的牌。"""
     if not state['round_done']:
         return
     rows = remaining_drops(state, pool)
     core = [d for d in rows if d['minimum_guarantee'] == 2]
     state['target'] = weighted_drop(state, core)['id'] if core else 0
-    state['cards'] = [0] * min(10, sum(state['remaining'][str(d['id'])] for d in rows))
+    if not rows:
+        state['cards'] = []
+        state['round_done'] = True
+        return
+    if not state['cards'] or all(state['cards']):
+        state['cards'] = [0] * min(10, sum(state['remaining'][str(d['id'])] for d in rows))
     state['round_done'] = False
+
+
+def next_page(state: dict, pool: dict) -> None:
+    """翻满一页但未获得保底时保留轮次，生成下一页待翻牌面。"""
+    rows = remaining_drops(state, pool)
+    state['cards'] = [0] * min(10, sum(state['remaining'][str(d['id'])] for d in rows))
 
 
 def owns_unique(user: dict, item: dict) -> bool:
@@ -92,8 +103,7 @@ def skin_pushes(user: dict, pool_ids: set[int] | None = None) -> list[tuple]:
                   'info': [{'drop_id': int(i), 'num': n} for i, n in state['remaining'].items()]}
         oath = pool_main(pool['pool_id'])['oath']
         if oath:
-            if not state['cards']:
-                prepare_round(state, pool)
+            prepare_round(state, pool)
             values['draw_info2'] = {'last_drop': state['target'], 'already_drop': state['cards']}
         result.append((68185 if oath else 68151, values))
     if pool_ids is None:
@@ -160,8 +170,7 @@ def skin_request(user: dict, command: int, request: dict) -> dict:
         state['pity'] += 1
         if oath and state['target']:
             target = catalog['drops'][state['target']]
-            guarantee = sum(bool(i) for i in state['cards']) >= len(state['cards']) - 1
-            drop = target if guarantee or RNG.random() < 0.01 or not others else weighted_drop(state, others)
+            drop = target if not others or RNG.random() < 0.01 else weighted_drop(state, others)
         else:
             drop = weighted_drop(state, core if core and (state['pity'] >= 10 or RNG.random() < 0.01 or not others) else others or core)
         spend_items(user, [{'id': pool['cost_once'][0], 'num': pool['cost_once'][1]}])
@@ -173,8 +182,18 @@ def skin_request(user: dict, command: int, request: dict) -> dict:
         if oath:
             state['cards'][positions[turn] - 1] = drop['id']
             results.append({'card_index': positions[turn], 'drop_id': drop['id']})
-            if drop['id'] == state['target'] or all(state['cards']):
+            if drop['id'] == state['target']:
                 state['round_done'] = True
+                if all(state['cards']):
+                    state['cards'] = []
+                break
+            if all(state['cards']):
+                rows = remaining_drops(state, pool)
+                if rows:
+                    next_page(state, pool)
+                else:
+                    state['round_done'] = True
+                    state['cards'] = []
                 break
         else:
             results.append(drop['id'])

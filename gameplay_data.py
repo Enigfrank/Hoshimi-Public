@@ -56,7 +56,9 @@ def client_catalog() -> dict:
 
 
 def passport_data(user: dict) -> dict:
-    """初始化本机主题的对策协议，保持未购买状态及有效开放时间。"""
+    """初始化本机主题的对策协议，默认已购买付费档并保留未领取奖励。"""
+    if not user.get('passport_pay_level'):
+        user['passport_pay_level'] = 1
     now = int(time.time())
     return {"battlepass_list_id": client_catalog()["passport_id"], "pay_level": user.get('passport_pay_level', 0), "is_start": 1,
             "next_refresh_timestamp": now + 7 * 86400, "weekly_gain_exp": user.get('passport_weekly_exp', 0),
@@ -129,6 +131,7 @@ def build_gameplay_pushes(user: dict) -> list[tuple]:
     from neural_matrix import neural_data
     from rogue_team import rogue_pushes
     from big_month_card import big_month_card_pushes
+    from monthly_card import monthly_card_pushes
     now = int(time.time())
     catalog = client_catalog()
     data = [
@@ -137,6 +140,7 @@ def build_gameplay_pushes(user: dict) -> list[tuple]:
         (89801, neural_data(user)),
         *daily_pushes(user),
         *big_month_card_pushes(user),
+        *monthly_card_pushes(user),
         (28001, task_data(user)),
         (28019, task_points(user)),
         (25009, {"daily_battle_list": [{"id": v['id'], "clear_times": v['clear_times']}
