@@ -54,7 +54,7 @@ from .backhome_data import backhome_state
 from .local_social import recommend_friends
 from .task_progress import refresh_task_periods, update_task_progress, claim_tasks, claim_task_points
 from .gameplay_data import task_data, task_points
-from .shop_transactions import buy_goods, shop_stock, refresh_shop_periods
+from .shop_transactions import ShopPurchaseLimitError, buy_goods, shop_stock, refresh_shop_periods
 from .loadout_storage import LOADOUT_COMMANDS, loadout_request, servant_data, chip_data
 from .passport_progress import passport_request
 from .challenge_requests import CHALLENGE_COMMANDS, challenge_request
@@ -889,7 +889,7 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 session.user_data = user
             except ValueError as error:
                 print(f'[商店拒绝] {error}')
-                resp_pb = encode_message(resp_cmd, {'result': 1})
+                resp_pb = encode_message(resp_cmd, {'result': 2602 if isinstance(error, ShopPurchaseLimitError) else 1})
         elif cmd in (24014, 24040):
             resp_cmd = cmd + 1
             try:
