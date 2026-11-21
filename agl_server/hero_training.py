@@ -3,6 +3,7 @@
 from .account_defaults import unlock_hero
 from .battle_rewards import inventory_pushes
 from .hero_affinity import affinity_request, exchange_data
+from .hero_cultivation import exchange_surplus_fragments
 from .hero_growth import grow_hero, grow_weapon
 from .hero_preferences import hero_info_data
 from .hero_talents import (resolve_module_items, train_module, train_skill,
@@ -11,7 +12,7 @@ from .hero_training_data import owned_hero, training_catalog
 from .hero_training_progress import combo_info, upgrade_combo
 from .loadout_storage import servant_data
 
-TRAINING_COMMANDS = {14014, 14016, 14026, 14030, 14036, 14042, 14044,
+TRAINING_COMMANDS = {14014, 14016, 14026, 14030, 14032, 14036, 14042, 14044,
                      14100, 14112, 14114, 14116, 14118, 14120, 14122,
                      46016, 46018, 46034, 73010, 73012, 73014, 73016, 73018, 73020, 73022}
 
@@ -22,6 +23,8 @@ def training_request(user: dict, command: int, request: dict) -> dict:
         return affinity_request(user, command, request)
     if command == 14118:
         return resolve_module_items(user, request)
+    if command == 14032:
+        return exchange_surplus_fragments(user)
     if command == 73018:
         return upgrade_combo(user, request)
     hero_id = request.get('hero_id', request.get('id'))
@@ -67,7 +70,7 @@ def training_pushes(user: dict, command: int, request: dict) -> list[tuple]:
     pushes = [(14007, {'hero': h}) for h in heroes['hero_info_list'] if h['hero_base_info']['id'] in ids]
     if command == 14100:
         pushes.append((14009, heroes))
-    if command == 14016:
+    if command in (14016, 14032):
         pushes.append((14019, {'piece_list': heroes['piece_list']}))
     if command in (46016, 46034):
         pushes.append((46011, servant_data(user)))
