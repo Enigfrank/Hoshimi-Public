@@ -1,5 +1,7 @@
 """全部客户端补给描述；动态商品采用本地编号及移转之辉价格。"""
 
+from functools import lru_cache
+
 # description_id: (item_type, shop_id)
 SUPPLY_DEFINITIONS = {
     6004: (21, 15),
@@ -888,10 +890,46 @@ SUPPLY_DEFINITIONS = {
     1199011: (14, 17),
 }
 
+@lru_cache(maxsize=1)
+def direct_skin_goods() -> dict[int, dict]:
+    """按客户端皮肤映射补齐缺失的动态商品；不覆盖静态商品。"""
+    from gameplay_protocol import read_client_data
+    rows = read_client_data('''(function()
+    local mapping=require('SkinIDToGoodIDCfg')
+    local descriptions=require('RechargeShopDescriptionCfg')
+    local items=require('ItemCfg')
+    local items2=require('ItemCfg2')
+    local shops={require('ShopCfg'), require('ShopCfg2'), require('ShopCfg3'), require('ShopCfg4')}
+    local rows=setmetatable({}, {json_array=true})
+    for _,skin in ipairs(mapping.all) do
+        local description=descriptions[skin]
+        local item=items[skin] or items2[skin]
+        if description and description.type==8 and description.param[1]==skin and item and item.type==8 then
+            for _,id in ipairs(mapping[skin].goods_id) do
+                local shop=math.floor(id/1000000)
+                if (shop==15 or shop==16 or shop==17) and not (shops[1][id] or shops[2][id] or shops[3][id] or shops[4][id]) then
+                    rows[#rows+1]={id,shop,skin}
+                end
+            end
+        end
+    end
+    return rows
+end)()''')
+    return {goods: {'goods_id': goods, 'description': skin, 'shop_id': shop,
+                    'cost_id': 1, 'cost': 1, 'limit_num': 1, 'give': 1}
+            for goods, shop, skin in rows}
+
+
 def build_supply_goods() -> dict[int, list[dict]]:
     """将全部补给定义转换为动态商品配置；本地商品统一售价 1 移转之辉。"""
     shops = {sid: [] for sid in (3, 4, 5, 6, 15, 16, 17, 18, 24, 25, 34, 35, 36, 37, 42)}
+    direct = direct_skin_goods()
+    replaced = {(cfg['shop_id'], cfg['description']) for cfg in direct.values()}
     for description, (_, sid) in SUPPLY_DEFINITIONS.items():
+        if (sid, description) in replaced:
+            continue
         shops[sid].append({"goods_id": 900000000 + description,
                            "description": description, "cost_id": 1, "cost": 1})
+    for cfg in direct.values():
+        shops[cfg['shop_id']].append({k: v for k, v in cfg.items() if k != 'shop_id'})
     return shops

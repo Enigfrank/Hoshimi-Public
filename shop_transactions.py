@@ -8,10 +8,11 @@ from battle_rewards import grant_rewards, inventory_pushes, spend_items
 from gameplay_protocol import decode_message, read_client_data
 from proto_bridge import get_bridge
 from push_data import SHOP_GOODS_NOREFRESH
-from supply_data import build_supply_goods, SUPPLY_DEFINITIONS
+from supply_data import build_supply_goods, direct_skin_goods, SUPPLY_DEFINITIONS
 from task_progress import update_task_progress
 from server_clock import refresh_hour
 from skin_draw_catalog import skin_shop_goods
+from skin_draw_progress import owns_unique
 from currency_data import build_currency_balances
 
 
@@ -69,6 +70,10 @@ def shop_good(good_id: int, shop_id: int) -> dict:
         return {}
     cfg = shop_catalog().get(str(good_id), {})
     if not cfg:
+        if shop_id in (15, 16, 17):
+            sale = direct_skin_goods().get(good_id)
+            if sale and sale['shop_id'] == shop_id:
+                return {**sale, 'direct_skin': sale['description']}
         return {}
     if int(cfg.get('shop_id', 0)) != shop_id \
             and good_id not in SHOP_GOODS_NOREFRESH.get(shop_id, []) \
@@ -118,6 +123,9 @@ def buy_goods(user: dict, request: dict) -> dict:
         bought = purchases.get(str(row['buy_id']), 0)
         if cfg.get('limit_num', -1) > 0 and bought + count > cfg['limit_num']:
             raise ValueError('超出商品限购次数')
+        skin = cfg.get('direct_skin')
+        if skin and (owns_unique(user, {'id': skin, 'type': 8}) or any(r['id'] == skin for r in rewards)):
+            raise ValueError('已拥有该皮肤')
         price = cfg.get('cost', 0)
         currency = cfg.get('cost_id', 0)
         if cfg.get('cheap_cost_id') and cfg.get('cheap_cost', 0) > 0 and not cfg.get('is_limit_time_discount'):
