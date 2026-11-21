@@ -10,8 +10,15 @@ FIELDS = {63000: 'teams_info_list', 63006: 'chess_teams_info_list',
 
 
 def reserve_data(user: dict) -> dict:
-    """从账号恢复各类队伍，空存档保持客户端默认队伍。"""
-    return deepcopy(user.get('reserve', {}))
+    """生成编队推送副本，移除普通编队重置遗留的空扩展字段。"""
+    snapshot = deepcopy(user.get('reserve', {}))
+    entries = snapshot.get('teams_info_list') if isinstance(snapshot, dict) else None
+    if isinstance(entries, list):
+        for entry in entries:
+            # 63005 的普通编队消息没有 data 字段。
+            if entry.get('data') == []:
+                del entry['data']
+    return snapshot
 
 
 def save_reserve(user: dict, command: int, request: dict) -> None:
