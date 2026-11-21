@@ -732,7 +732,7 @@ setmetatable(_G, {{
                 g.shop_sort, g.cost_type = index, 0
                 g.cost_id, g.cost = info.cost_id, info.cost
                 g.cheap_cost_id, g.cheap_cost = info.cost_id, info.cost
-                g.limit_num, g.limit_display = -1, 1
+                g.limit_num, g.limit_display = info.limit_num or -1, 1
                 g.refresh_cycle = 0
             end
             return m:SerializeToString()
