@@ -11,8 +11,8 @@
 
 ## 代码定位
 
-- 服务入口为 server.py；路径和端口配置见 config.py；协议桥见 proto_bridge.py 和 native_protocol.py；协议映射见 protocol_map.json。
-- 账号与持久化见 account_*.py、user_storage.py；玩法按 battle_*、hero_*、resident_* 等领域模块组织；GM 在 gm_admin.py 与 gm_web/。
+- 服务入口为 server.py；路径和端口配置见 config.py；协议桥见 agl_server/proto_bridge.py 和 agl_server/native_protocol.py；协议映射见 protocol_map.json。
+- 账号与持久化见 agl_server/account_*.py、agl_server/user_storage.py；玩法按 agl_server/battle_*、agl_server/hero_*、agl_server/resident_* 等领域模块组织；GM 在 agl_server/gm_admin.py 与 gm_web/。
 - 根目录存在 .codegraph/ 时先使用 CodeGraph 定位符号和调用路径；没有索引时用 rg 搜索，不自行建立索引。
 - Python 服务核心使用标准库。新增第三方依赖前先确认确有必要，不为简单需求引入框架或抽象层。
 

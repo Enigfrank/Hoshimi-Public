@@ -8,20 +8,21 @@
 
 | 文件或目录 | 用途 |
 | --- | --- |
-| server.py | 服务入口、连接与协议分发 |
+| server.py | 兼容启动入口，连接与协议分发位于 `agl_server/server.py` |
 | config.py | 路径、网络、客户端版本及资源配置 |
-| proto_bridge.py、native_protocol.py | Lua/DLL 桥与原生协议 |
-| auto_responder.py、protocol_map.json | 协议映射及兜底应答 |
-| account_*.py、user_storage.py | 账号认证、初始化、持久化 |
-| battle_*.py、hero_*.py、resident_*.py 等 | 按领域划分的玩法 |
-| hotfix.py、cdn_connection.py | 热更新与资源接入 |
-| gm_admin.py、gm_web/ | 本机 GM 接口与页面 |
-| diagnostic_bundle.py、diagnostic_logging.py | 诊断包预览与下载、Python 运行日志捕获 |
+| agl_server/ | 服务端业务、协议、存档和玩法模块 |
+| agl_server/proto_bridge.py、agl_server/native_protocol.py | Lua/DLL 桥与原生协议 |
+| agl_server/auto_responder.py、protocol_map.json | 协议映射及兜底应答 |
+| agl_server/account_*.py、agl_server/user_storage.py | 账号认证、初始化、持久化 |
+| agl_server/battle_*.py、hero_*.py、resident_*.py 等 | 按领域划分的玩法 |
+| agl_server/hotfix.py、agl_server/cdn_connection.py | 热更新与资源接入 |
+| agl_server/gm_admin.py、gm_web/ | 本机 GM 接口与页面 |
+| agl_server/diagnostic_bundle.py、agl_server/diagnostic_logging.py | 诊断包预览与下载、Python 运行日志捕获 |
 | rescouces/requirements.txt | 核心依赖说明 |
 | rescouces/scripts/gen_cert.ps1 | 旧 HTTPS 模式证书生成 |
 | LICENSE、THIRD_PARTY_NOTICES.txt | 许可与第三方声明 |
 
-rescouces 保留原项目拼写。根目录公共 Python 模块一起同步，避免遗漏间接导入。
+rescouces 保留原项目拼写。根目录只保留启动入口和配置；`agl_server/` 内的公共模块整体同步，避免遗漏间接导入。
 
 不包含：真实账号、聊天、GM 备份、本机配置、证书私钥、游戏安装包、DLL、extracted_lua、逆向工具及测试资源。protocol_map.json 是服务端所需协议映射，随源码提供。
 
