@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from functools import lru_cache
+from math import log10
 
 from .battle_rewards import grant_rewards
 from .gameplay_protocol import read_client_data
@@ -104,11 +105,12 @@ def report_hero(identifier: int) -> int:
     return read_client_data(f"(function() local c=require('SkinCfg')[{int(identifier)}]; return c and c.hero or {int(identifier)} end)()")
 
 
-def neural_score(battle: dict) -> tuple[int, int]:
-    """本地规则：普通胜利按耗时计分，挑战非退出战报按实际队伍伤害计分。"""
+def neural_score(battle: dict) -> tuple[int, int, int]:
+    """返回结算结果、积分和用时。挑战击杀首领后按总伤害计分。"""
     report = battle['reported']
     info = report['info']
-    if report['result'] not in (1, 2, 3) or '2' not in info:
+    result = report['result']
+    if result not in (1, 2, 3) or '2' not in info:
         raise ValueError('神经矩阵战报缺少有效结果或耗时')
     expected = {row['hero_id'] for row in battle['common']['hero_list'] if row['hero_id']}
     characters = [row for row in info.get('characters', []) if row.get('1', 0) or row.get('3', 0)]
@@ -118,17 +120,26 @@ def neural_score(battle: dict) -> tuple[int, int]:
     seconds = max(0, info['2']) // 1000
     cfg = neural_stage(battle['common']['dest'])
     if cfg['stage_type'] == 1:
-        score = max(4000, 5060 - (seconds * seconds + 19) // 20) if report['result'] == 1 else 0
-    else:
-        damage = sum(max(0, row.get('4', 0)) for row in characters)
-        score = min(30000, damage // 4000) if report['result'] != 3 else 0
-    return score, seconds
+        score = max(4000, 5060 - (seconds * seconds + 19) // 20) if result == 1 else 0
+        return result, score, seconds
+    if result == 3:
+        return result, 0, seconds
+    # BattleResultInfo.EnemyDeadNum 是 protobuf int32，缺省值为 0。
+    if not 0 < info.get('11', 0) < 1 << 31:
+        return 2, 0, seconds
+    damage = 0.0
+    for row in characters:
+        amount = row.get('4', 0)  # CharResultInfo.Damage 是 protobuf int64。
+        if 0 < amount < 1 << 63:
+            damage += amount
+    score = max(4000, int(16000 * log10(max(1, damage) / 1e8) - 3000))
+    return 1, score, seconds
 
 
-def settle_neural_battle(user: dict, battle: dict) -> None:
-    """保存本次锁队与分数；任务达成事实及历史最高分不因手动重置丢失。"""
+def settle_neural_battle(user: dict, battle: dict) -> int:
+    """保存本次锁队与分数，并返回向客户端下发的战斗结果。"""
     validate_neural_settlement(user, battle)
-    score, seconds = neural_score(battle)
+    result, score, seconds = neural_score(battle)
     state = neural_state(user)
     state['last_score'] = score
     if score:
@@ -148,6 +159,7 @@ def settle_neural_battle(user: dict, battle: dict) -> None:
         achieved = bool(teams) if kind == 11304 else kind == 11307 and sum(team['cur_value'] for team in teams.values()) >= condition['params'][1]
         if achieved and row['task_id'] not in state['available']:
             state['available'].append(row['task_id'])
+    return result
 
 
 def neural_request(user: dict, command: int, request: dict) -> dict:
