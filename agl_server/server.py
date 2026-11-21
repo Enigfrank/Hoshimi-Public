@@ -35,6 +35,7 @@ from .chapter_maps import CHAPTER_MAP_COMMANDS, CHAPTER_ONEWAY_COMMANDS, chapter
 from .mult_heart_demon import MULT_HEART_COMMANDS, demon_request, mult_heart_demon_pushes
 from .demon_rank import demon_rank_request
 from .hero_data import build_max_heroes
+from .hero_guide import hero_guide_data
 from .supply_data import build_supply_goods
 from .gameplay_data import build_gameplay_pushes, passport_data, equip_battle_data, battle_progress_pushes
 from .gameplay_protocol import encode_message, decode_message, message_has_field
@@ -1172,6 +1173,11 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 print(f'[誓约操作拒绝] 指令={cmd} {error}')
                 resp_extra = None
                 resp_pb = encode_message(resp_cmd, {'result': 1})
+        elif cmd == 32042:
+            role_id = decode_message(cmd, pb_payload)['role_id']
+            resp_cmd = 32043
+            resp_pb = encode_message(resp_cmd, {'result': 0})
+            resp_extra = [(12097, encode_message(12097, hero_guide_data(role_id)), 0, 0.0)]
         elif cmd in PROFILE_COMMANDS:
             from copy import deepcopy
             resp_cmd = cmd + 1
