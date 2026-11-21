@@ -272,6 +272,9 @@ def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
     result = min(report['result'], 3)
     info = report['info']
     common = battle['common']
+    if common['type'] == 93:
+        from .neural_matrix import settle_neural_battle
+        result = settle_neural_battle(user, battle)
     win = result == 1
     if common['type'] == 8 and win:
         from .challenge_data import validate_enchant_stage
@@ -292,9 +295,6 @@ def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
     if common['type'] == 82:
         from .mult_heart_demon import settle_demon_battle
         settle_demon_battle(user, battle)
-    if common['type'] == 93:
-        from .neural_matrix import settle_neural_battle
-        settle_neural_battle(user, battle)
     stars = []
     for index, condition in enumerate(battle['config'].get('three_star_need') or [], 1):
         kind = condition[0]
