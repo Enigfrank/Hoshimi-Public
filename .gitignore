@@ -21,3 +21,4 @@ venv/
 .idea/
 Thumbs.db
 Desktop.ini
+/.agents
