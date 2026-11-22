@@ -103,15 +103,10 @@ def strengthen(user: dict, equip: dict, request: dict, one_key: bool) -> dict:
     gain = sum(int(e['exp']*0.8)+settings['base_exp_equip_star'][reward_item(e['prefab_id'])['equip']['starlevel']-1]
                for e in consumed)
     costs = []
-    break_costs = {}
     for index in range(current, current+steps):
         if user.get('level', 80) < settings['equip_break_user_level'][index]:
             raise ValueError('玩家等级不足')
-        for cost in material_cost(cfg['break_cost'][index]):
-            if cost['id'] == 2:
-                costs.append(cost)
-            else:
-                break_costs[cost['id']] = break_costs.get(cost['id'], 0) + cost['num']
+        costs.extend(material_cost(cfg['break_cost'][index]))
 
     exp_material_ids = set(settings['equip_exp_props_id_list'])
     for row in request['mat_list']:
@@ -121,9 +116,11 @@ def strengthen(user: dict, equip: dict, request: dict, one_key: bool) -> dict:
         if row['num'] == 0:
             continue
         item_id = row['id']
+        if item_id not in exp_material_ids:
+            raise ValueError('刻印强化材料无效')
         cfg_item = read_client_data(f"require('ItemCfg')[{item_id}] or {{}}")
         params = cfg_item.get('param') or []
-        if item_id not in exp_material_ids or cfg_item.get('sub_type') != 608 or not params:
+        if cfg_item.get('sub_type') != 608 or not params:
             raise ValueError('刻印强化材料无效')
         gain += params[0]*row['num']
         costs.append({'id': item_id, 'num': row['num']})
@@ -132,9 +129,9 @@ def strengthen(user: dict, equip: dict, request: dict, one_key: bool) -> dict:
     if gain <= 0 or (one_key and gain < needed):
         raise ValueError('刻印强化经验不足')
     applied = min(gain, needed)
-    costs.append({'id': 2, 'num': int(applied*settings['equip_strengthen_gold_cost'][0])})
-    costs.extend({'id': item, 'num': amount}
-                 for item, amount in break_costs.items())
+    gold = int(applied*settings['equip_strengthen_gold_cost'][0])
+    if gold:
+        costs.append({'id': 2, 'num': gold})
     spend_items(user, costs)
     equip['exp'] += applied
     equip['now_break_level'] += steps
