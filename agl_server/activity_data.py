@@ -85,6 +85,8 @@ def chapter_activity_catalog() -> list[dict]:
         local clients=require('ChapterClientCfg')
         for _,id in ipairs(clients.get_id_list_by_toggle[8]) do add(clients[id].activity_id) end
         add(require('ActivityConst').SIGN)
+        -- 情报兑换入口按商店的活动排期判断开放状态。
+        add(require('ShopListCfg')[12].activity_id)
         return result
     end)()''')
 
