@@ -24,14 +24,14 @@ class ShopPurchaseLimitError(ValueError):
 def module_shop_limits() -> dict[int, int]:
     """按角色各段同调所需的专属材料总量计算同调轨迹商品的永久限购次数。"""
     from .hero_training_data import training_catalog
-    goods = {cfg['give_id']: cfg for cfg in shop_catalog().values() if cfg['shop_id'] == 14}
+    goods = [cfg for cfg in shop_catalog().values() if cfg['shop_id'] == 14]
     totals = {}
     for module in training_catalog()['WeaponModuleCfg'].values():
         for stage in module['cost']:
             for item_id, amount in stage:
-                if item_id in goods:
-                    totals[item_id] = totals.get(item_id, 0) + amount
-    return {goods[item]['goods_id']: count // goods[item]['give'] for item, count in totals.items()}
+                totals[item_id] = totals.get(item_id, 0) + amount
+    return {cfg['goods_id']: totals[cfg['give_id']] // cfg['give'] for cfg in goods
+            if cfg['give_id'] in totals and cfg['give'] > 0}
 
 
 def home_purchase_pushes(user: dict, result: dict) -> list[tuple] | None:
@@ -97,8 +97,8 @@ def shop_good(good_id: int, shop_id: int) -> dict:
             and good_id not in SHOP_GOODS_NOREFRESH.get(shop_id, []) \
             and good_id not in skin_shop_goods().get(shop_id, []):
         return {}
-    if shop_id == 14 and good_id in module_shop_limits():
-        return {**cfg, 'limit_num': module_shop_limits()[good_id]}
+    if shop_id == 14 and (limit := module_shop_limits().get(good_id)) is not None:
+        return {**cfg, 'limit_num': limit, 'refresh_cycle': 0}
     return cfg
 
 
@@ -146,9 +146,10 @@ def buy_goods(user: dict, request: dict) -> dict:
                 if not prerequisite or purchases.get(str(previous), 0) < prerequisite['limit_num']:
                     raise ValueError('请先购完前一档皮肤票券')
         bought = purchases.get(str(row['buy_id']), 0)
-        if cfg.get('limit_num', -1) > 0 and bought + count > cfg['limit_num']:
-            if shop_id == 14:
+        if shop_id == 14 and row['buy_id'] in module_shop_limits():
+            if bought + count > cfg['limit_num']:
                 raise ShopPurchaseLimitError('超出同调材料累计限购次数')
+        elif cfg.get('limit_num', -1) > 0 and bought + count > cfg['limit_num']:
             raise ValueError('超出商品限购次数')
         skin = cfg.get('direct_skin')
         if skin and (owns_unique(user, {'id': skin, 'type': 8}) or any(r['id'] == skin for r in rewards)):
