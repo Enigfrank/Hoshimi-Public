@@ -3,7 +3,7 @@
 from .account_defaults import unlock_hero
 from .battle_rewards import inventory_pushes
 from .hero_affinity import affinity_request, exchange_data
-from .hero_cultivation import exchange_surplus_fragments
+from .hero_cultivation import exchange_surplus_fragments, surplus_fragment_pushes
 from .hero_growth import grow_hero, grow_weapon
 from .hero_preferences import hero_info_data
 from .hero_talents import (resolve_module_items, train_module, train_skill,
@@ -63,6 +63,8 @@ def training_request(user: dict, command: int, request: dict) -> dict:
 
 def training_pushes(user: dict, command: int, request: dict) -> list[tuple]:
     """响应之后同步最终状态，避免原始客户端回调重复增加等级或天赋点。"""
+    if command == 14032:
+        return surplus_fragment_pushes(user)
     heroes = hero_info_data(user)
     ids = {request.get('hero_id', request.get('id', 0))}
     if command in (14100, 73010, 73016, 73022):
@@ -70,7 +72,7 @@ def training_pushes(user: dict, command: int, request: dict) -> list[tuple]:
     pushes = [(14007, {'hero': h}) for h in heroes['hero_info_list'] if h['hero_base_info']['id'] in ids]
     if command == 14100:
         pushes.append((14009, heroes))
-    if command in (14016, 14032):
+    if command == 14016:
         pushes.append((14019, {'piece_list': heroes['piece_list']}))
     if command in (46016, 46034):
         pushes.append((46011, servant_data(user)))

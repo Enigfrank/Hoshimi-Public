@@ -15,7 +15,7 @@ def fragment_exchange_rules() -> tuple[dict, dict]:
         local reserve = 0
         for i = #stars.all, 1, -1 do
             local id = stars.all[i]
-            reserve = reserve + stars[id].star_up
+            if i < #stars.all then reserve = reserve + stars[id].star_up end
             costs[tostring(id)] = reserve
         end
         local rates = require('GameSetting').fragment_break_num.value
@@ -59,6 +59,12 @@ def exchange_surplus_fragments(user: dict) -> dict:
     grant_rewards(user, [{'id': badge, 'num': amount} for badge, amount in rewards.items()])
     pieces.update(remaining)
     return {'result': 0}
+
+
+def surplus_fragment_pushes(user: dict) -> list[tuple]:
+    """先同步碎片余额（含零值），再同步货币和材料。"""
+    pieces = [{'id': int(hero_id), 'num': count} for hero_id, count in user['hero_pieces'].items()]
+    return [(14019, {'piece_list': pieces}), *inventory_pushes(user)[:2]]
 
 
 def promote_hero(user: dict, hero_id: int) -> dict:
