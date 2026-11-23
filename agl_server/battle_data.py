@@ -1,5 +1,6 @@
 """单人战斗队伍、会话和结算数据。"""
 
+import random
 import time
 from copy import deepcopy
 from functools import lru_cache
@@ -17,6 +18,49 @@ from .loadout_storage import servant_data
 from .resident_battle import RESIDENT_STAGE_CONFIGS, complete_resident_battle
 
 _BATTLE_IDS = count(int(time.time()))
+
+_DYNAMIC_ATTRIBUTE_HERO = 1085
+_NORMAL_ATTACK_ATTRIBUTES = frozenset((0, 2, 4, 6, 8, 10, 12, 14))
+
+
+@lru_cache(maxsize=256)
+def _hero_attack_attribute(hero_id: int) -> int:
+    """读取角色基础攻击属性，动态属性由战斗队伍另行解析。"""
+    if hero_id <= 0:
+        return -1
+    value = read_client_data(
+        f"(function() local h=require('HeroCfg')[{int(hero_id)}]; local a=h and h.ATK_attribute; "
+        "return type(a)=='table' and tonumber(a[1]) or -1 end)()"
+    )
+    return int(value)
+
+
+def _resolve_battle_hero_id(selected_id: int, hero_type: int) -> int:
+    """把试用模板编号解析为 HeroCfg 中的实际角色编号。"""
+    if hero_type != 2:
+        return int(selected_id)
+    value = read_client_data(
+        f"((require('HeroStandardSystemCfg')[{int(selected_id)}] or {{}}).hero_id or 0)"
+    )
+    return int(value)
+
+
+def _apply_dynamic_main_damage_type(team: list[dict], hero_ids: list[int]) -> None:
+    """按两名队友的属性等概率选择诗寇蒂的主伤害属性。"""
+    if len(team) != len(hero_ids) or _DYNAMIC_ATTRIBUTE_HERO not in hero_ids:
+        return
+    teammate_attributes = [
+        _hero_attack_attribute(hero_id)
+        for hero_id in hero_ids
+        if hero_id != _DYNAMIC_ATTRIBUTE_HERO
+    ]
+    if len(teammate_attributes) != 2 or any(
+            attribute not in _NORMAL_ATTACK_ATTRIBUTES for attribute in teammate_attributes):
+        return
+    dynamic_attribute = random.choice(teammate_attributes)
+    for member, hero_id in zip(team, hero_ids):
+        if hero_id == _DYNAMIC_ATTRIBUTE_HERO:
+            member['main_damage_type'] = dynamic_attribute
 
 
 STAGE_CONFIGS = {
@@ -174,6 +218,10 @@ def start_battle(user: dict, request: dict, max_times: int = 5) -> tuple[dict, d
     by_id = {h['hero_base_info']['id']: h for h in heroes}
     servants = servant_data(user)['servant_list']
     team = polyhedron_team if common['type'] == 52 else []
+    team_hero_ids = [
+        _resolve_battle_hero_id(member['hero_base_info']['id'], member.get('hero_type', 1))
+        for member in team
+    ]
     for selection in ([] if common['type'] == 52 else common['hero_list']):
         hero_id = selection['hero_id']
         if not hero_id:
@@ -193,8 +241,11 @@ def start_battle(user: dict, request: dict, max_times: int = 5) -> tuple[dict, d
         else:
             raise ValueError('角色未拥有')
         team.append(member)
+        team_hero_ids.append(_resolve_battle_hero_id(
+            member['hero_base_info']['id'], member.get('hero_type', hero_type)))
     if not team:
         raise ValueError('战斗队伍为空')
+    _apply_dynamic_main_damage_type(team, team_hero_ids)
     now = int(time.time())
     battle_id = max(next(_BATTLE_IDS), user.get('last_battle_id', 0)+1)
     user['last_battle_id'] = battle_id
