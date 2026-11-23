@@ -8,6 +8,7 @@ from itertools import count
 
 from .gameplay_protocol import decode_message, read_client_data
 from .proto_bridge import get_bridge
+from .currency_data import STAMINA_CURRENCY_ID
 from .battle_rewards import drop_config, roll_drops, grant_rewards
 from .hero_preferences import hero_info_data
 from .battle_rewards import equipment_data
@@ -69,6 +70,7 @@ STAGE_CONFIGS = {
     7: 'BattleTowerStageCfg', 8: 'BattleEnchantmentStageCfg', 9: 'BattleEquipStageCfg',
     10: 'BattleBossStageCfg', 100: 'BattleBossStageCfg', 11: 'BattleMythicStageCfg',
     12: 'BattleBaseTeachStageCfg', 13: 'BattleHeroTeachStageCfg',
+    20: 'BattleHeroTrialStageCfg', 76: 'BattleResidentHeroTrialStageCfg',
     35: 'BattleMythicFinalCfg', 53: 'BattleEquipSeizureStageCfg',
     40: 'BattleEquipBreakThroughMaterialStageCfg', 1003: 'BattleAbyssCfg',
     1006: 'BattleAdvanceTestStageCfg', 52: 'BattlePolyhedronStageCfg',
@@ -90,6 +92,29 @@ def battle_cost(config: dict) -> dict:
     if isinstance(cost, (list, tuple)) and len(cost) >= 2:
         return {'id': int(cost[0]), 'num': int(cost[1])}
     raise ValueError('关卡成本配置无效')
+
+
+def chapter_stage_cleared(user: dict, stage_id: int) -> bool:
+    """判断主线剧情关卡是否已有真实通关记录。"""
+    return int(user.get('battle_progress', {}).get(f'1:{stage_id}', {}).get('clear_times', 0)) > 0
+
+
+def battle_cost_for(user: dict, stage_type: int, stage_id: int, config: dict) -> dict:
+    """按玩法计算本次消耗；主线剧情关卡首通前消耗配置体力，通关后为 0。"""
+    cost = battle_cost(config)
+    if stage_type == 1 and chapter_stage_cleared(user, stage_id):
+        return {'id': cost['id'], 'num': 0}
+    return cost
+
+
+def battle_exp_reward(config: dict, cost: dict, times: int) -> int:
+    """管理员经验优先取关卡配置 user_exp，缺失时按本次实际消耗的体力等量折算；未付费进入不给经验。"""
+    if cost['num'] <= 0:
+        return 0
+    configured = int(config.get('user_exp') or 0)
+    if configured > 0:
+        return configured * times
+    return cost['num'] if cost['id'] == STAMINA_CURRENCY_ID else 0
 
 
 @lru_cache(maxsize=512)
@@ -166,7 +191,7 @@ def start_battle(user: dict, request: dict, max_times: int = 5) -> tuple[dict, d
     times = common.get('battle_times') or 1
     if not 1 <= times <= max_times:
         raise ValueError('战斗倍率无效')
-    cost = battle_cost(cfg)
+    cost = battle_cost_for(user, common['type'], common['dest'], cfg)
     amount = cost['num'] * times
     if amount:
         from .currency_data import build_currency_balances
@@ -212,6 +237,9 @@ def start_battle(user: dict, request: dict, max_times: int = 5) -> tuple[dict, d
     if common['type'] == 1:
         from .chapter_maps import validate_chapter_stage
         validate_chapter_stage(user, common['dest'])
+    if common['type'] in (20, 76):
+        from .hero_trial import prepare_hero_trial_battle
+        prepare_hero_trial_battle(common, cfg)
     bridge = get_bridge()
     heroes = hero_info_data(user)['hero_info_list']
     equipment = equipment_data(user)['equip_list']
@@ -383,12 +411,16 @@ def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
     progress = user.setdefault('battle_progress', {}).setdefault(key, {'clear_times': 0, 'stars': []})
     times = max(1, min(common.get('battle_times') or 1, battle.get('max_times', 5)))
     if win:
-        cost = battle_cost(battle['config'])
+        cost = battle_cost_for(user, common['type'], progress_dest, battle['config'])
+        exp = battle_exp_reward(battle['config'], cost, times)
         cost['num'] *= times
         if cost['num']:
             spend_items(user, [cost])
-            if cost['id'] == 4:
-                update_task_progress(user, 350, cost['num'], 4)
+            if cost['id'] == STAMINA_CURRENCY_ID:
+                update_task_progress(user, 350, cost['num'], STAMINA_CURRENCY_ID)
+        if exp:
+            from .account_defaults import add_player_exp
+            add_player_exp(user, exp)
         update_task_progress(user, 402, times)
         if common['type'] == 11:
             update_task_progress(user, 453, times)
