@@ -7,7 +7,11 @@ from . import user_storage
 PERIOD_NAMES = {'dream': '梦境再构', 'core': '迭代校验',
                 'polyhedron': '多维变量', 'neural': '神经矩阵·并发序列'}
 DEFAULT_ANCHOR = 334800  # 1970-01-05 北京时间 05:00，周一业务日。
-PERIOD_ACTIVITIES = {'polyhedron': (4407301, 4407302), 'neural': (111, 4443304, 4443404, 4443504)}
+NEURAL_ACTIVITY_IDS = (4443301, 4443302, 4443303, 4443304)
+NEURAL_ALL_IDS = tuple(activity for main in NEURAL_ACTIVITY_IDS
+                       for activity in (main, main + 100, main + 200))
+PERIOD_ACTIVITIES = {'polyhedron': (4407301, 4407302),
+                     'neural': (111, *NEURAL_ALL_IDS)}
 
 
 def period_settings(manager=None) -> dict:
@@ -24,6 +28,15 @@ def period_window(activity: str, settings=None, now=None) -> tuple[int, int]:
     duration = cfg['hours'] * 3600
     start = cfg['anchor'] + max(0, (now - cfg['anchor']) // duration) * duration
     return start, start + duration
+
+
+def neural_activity(settings=None, now=None) -> int:
+    """按神经矩阵周期在四期并发序列中轮换，当前期由周期起点决定。"""
+    settings = settings or period_settings()
+    start, _ = period_window('neural', settings, now)
+    cfg = settings['neural']
+    index = ((start - cfg['anchor']) // (cfg['hours'] * 3600)) % len(NEURAL_ACTIVITY_IDS)
+    return NEURAL_ACTIVITY_IDS[index]
 
 
 def period_options(manager=None) -> dict:
