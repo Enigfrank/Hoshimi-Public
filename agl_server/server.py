@@ -805,6 +805,8 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 resp_pb = encode_message(resp_cmd, values)
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in pushes]
                 if cmd == 67004:
+                    # 派遣成功会推进每日观测站任务，需在队列表下发前带上任务进度。
+                    resp_extra.append((28001, encode_message(28001, task_data(user)), 0, 0.0))
                     resp_before = [(c, data) for c, data, _, _ in resp_extra]
                     resp_extra = None
                 get_user_manager().save_user(user)
@@ -863,9 +865,9 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                             get_user_manager().save_user(user)
                             session.user_data = user
                             # 大厅触摸会改变誓约任务进度，立即推送 14503，
-                            # 避免客户端继续显示交互前的缓存进度。
+                            # 避免客户端继续显示交互前的缓存进度；每日交互任务同步刷新 28001。
                             frames = b''.join(pack_ystcp(c, encode_message(c, v))
-                                              for c, v in assignment_pushes(user))
+                                              for c, v in [*assignment_pushes(user), (28001, task_data(user))])
                             session.writer.write(frames)
                 except ValueError as error:
                     print(f'[大厅触摸上报拒绝] {error}')
@@ -885,6 +887,8 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                     # 客户端会按购买结果更新限购次数；全量 20009 会重建商店并丢失返回按钮。
                     pushes = inventory_pushes(user) + [(14009, hero_info_data(user)),
                         (46011, servant_data(user)), (32009, profile_data(user))]
+                # 购买会推进每日商店任务，任务面板必须收到最新进度。
+                pushes.append((28001, task_data(user)))
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in pushes]
                 get_user_manager().save_user(user)
                 session.user_data = user
@@ -941,6 +945,8 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 pushes = inventory_pushes(user) + daily_pushes(user) + [
                     (14009, hero_info_data(user)), (46011, servant_data(user)),
                     (32009, profile_data(user)), (32011, scene_view_data(user))]
+                # 兑换与补给站领取会推进每日任务，随响应下发最新任务进度。
+                pushes.append((28001, task_data(user)))
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in pushes]
                 get_user_manager().save_user(user)
                 session.user_data = user
@@ -1335,7 +1341,12 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                                                              port=str(TCP_GATEWAY_PORT)), 0, 0.1)]
                 print(f"[战斗开始] 类型={battle['common']['type']} 关卡={battle['common']['dest']} ID={battle['id']}")
             except ValueError as error:
-                print(f"[战斗拒绝] {error}")
+                try:
+                    info = decode_message(cmd, pb_payload)['common_info']
+                    detail = f" 类型={info.get('type')} 关卡={info.get('dest')}"
+                except Exception:
+                    detail = ''
+                print(f"[战斗拒绝] {error}{detail}")
                 resp_before = []
                 resp_pb = bridge.encode_sc_54031(result=1)
         elif cmd == 54038:

@@ -142,15 +142,32 @@ def validate_chapter_stage(user, stage):
 
 
 def update_chapter_tasks(user):
-    """专用任务只取真实战斗记录，保存领奖标志并允许重启恢复。"""
+    """剧情与专用任务只取真实战斗和已领取记录，保存后可在重启时恢复。"""
     from .gameplay_data import client_catalog
-    for cfg in client_catalog()['tasks']:
-        if cfg['type'] not in (801, 802, 803, 804) or cfg['condition'] != 401:
+    catalog, saved = client_catalog()['tasks'], user.setdefault('tasks', {})
+    for cfg in catalog:
+        if cfg['condition'] != 401 or cfg['type'] not in (3, 801, 802, 803, 804):
             continue
         stage = cfg['additional_parameter'][0]
         value = user.get('battle_progress', {}).get(f'1:{stage}', {}).get('clear_times', 0)
-        row = user.setdefault('tasks', {}).setdefault(str(cfg['id']), {'progress': 0, 'complete_flag': 0})
-        row['progress'] = max(row['progress'], min(cfg['need'], value))
+        entry = saved.get(str(cfg['id']))
+        if not value and entry is None:
+            continue
+        row = entry or saved.setdefault(str(cfg['id']), {'progress': 0, 'complete_flag': 0})
+        row['progress'] = max(row.get('progress', 0), min(cfg['need'], value))
+    # 每章的汇总任务按同阶段已领取的子任务数推进，避免提前发放章节奖励。
+    for cfg in catalog:
+        params = cfg['additional_parameter'] or []
+        if cfg['type'] != 3 or cfg['condition'] != 500 or len(params) < 2:
+            continue
+        done = sum(1 for other in catalog if other['type'] == 3 and other['phase'] == params[1]
+                   and other['condition'] != 500
+                   and saved.get(str(other['id']), {}).get('complete_flag'))
+        entry = saved.get(str(cfg['id']))
+        if not done and entry is None:
+            continue
+        row = entry or saved.setdefault(str(cfg['id']), {'progress': 0, 'complete_flag': 0})
+        row['progress'] = max(row.get('progress', 0), min(cfg['need'], done))
 
 
 def legacy_row(user, map_id):
