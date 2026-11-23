@@ -40,7 +40,8 @@ from .supply_data import build_supply_goods
 from .gameplay_data import build_gameplay_pushes, passport_data, equip_battle_data, battle_progress_pushes
 from .gameplay_protocol import encode_message, decode_message, message_has_field
 from .battle_data import start_battle, settle_battle, start_story
-from .challenge_data import (boss_data, enchantment_data, challenge_pushes,
+from .challenge_data import (boss_data, core_data, claim_core_rewards,
+                            enchantment_data, challenge_pushes,
                             refresh_enchantment)
 from .battle_udp import BattleUDP
 from .reserve_data import save_reserve, save_battle_team
@@ -1231,6 +1232,24 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 user_mgr.save_user(user)
             resp_cmd = 14035
             resp_pb = bridge.encode_sc_14035(result=0 if valid else 1)
+        elif cmd == 75006:
+            from copy import deepcopy
+            resp_cmd = 75007
+            try:
+                if not session or not session.user_data:
+                    raise ValueError('未登录')
+                user = deepcopy(session.user_data)
+                request = decode_message(cmd, pb_payload)
+                granted = claim_core_rewards(user, request.get('reward_list') or [])
+                resp_pb = encode_message(resp_cmd, {'result': 0,
+                                                   'reward_list': granted})
+                pushes = inventory_pushes(user) + [(75009, core_data(user))]
+                resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in pushes]
+                get_user_manager().save_user(user)
+                session.user_data = user
+            except ValueError:
+                resp_extra = None
+                resp_pb = encode_message(resp_cmd, {'result': 1})
         elif cmd == 10200:  # cs_10200 -> sc_10201
             resp_cmd = 10201
             resp_pb = bridge.encode_sc_10201()

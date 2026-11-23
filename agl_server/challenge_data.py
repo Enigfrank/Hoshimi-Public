@@ -8,7 +8,7 @@ from .gameplay_protocol import read_client_data
 from .polyhedron_game import polyhedron_data
 from .equip_exploration import exploration_pushes
 from .battle_progress import progress, tower_progress
-from .battle_rewards import spend_items
+from .battle_rewards import spend_items, grant_rewards
 from .server_clock import business_day
 from .activity_periods import period_settings, period_window
 
@@ -315,17 +315,130 @@ def rogue_team_data(user: dict) -> dict:
             'last_id': state.get('last_id', 0)}
 
 
-def core_data(user: dict) -> dict:
-    """按客户端配置顺序轮换迭代校验，预告下期并只恢复当期进度。"""
+def core_reward_catalog() -> dict:
+    """读取客户端迭代校验奖励表，任务 ID 与当前安装包版本保持一致。"""
+    rows = read_client_data('''(function()
+        local cfg=require('CoreVerificationRewardCfg')
+        local result={}
+        for _,id in ipairs(cfg.all) do
+            local row=cfg[id]
+            local rewards={}
+            for _,pair in ipairs(row.reward or {}) do
+                rewards[#rewards+1]={id=pair[1],num=pair[2]}
+            end
+            result[#result+1]={id=row.id,cycle=row.cycle,reward_type=row.reward_type,
+                               condition=row.condition,rewards=rewards}
+        end
+        return result
+    end)()''')
+    return {int(row['id']): {'id': int(row['id']), 'cycle': int(row['cycle'] or 0),
+                             'reward_type': int(row['reward_type'] or 0),
+                             'condition': row.get('condition'),
+                             'rewards': [{'id': int(x['id']), 'num': int(x['num'])}
+                                         for x in row.get('rewards') or []]}
+            for row in rows}
+
+
+def core_cycle_info() -> tuple[int, int, int]:
+    """按当前活动周期计算迭代校验的当期、下期与刷新时间。"""
     rows = challenge_catalog()['core']
     cycles = list(dict.fromkeys(row['cycle'] for row in rows))
     settings = period_settings()
     start, end = period_window('core', settings)
     cfg = settings['core']
     index = ((start - cfg['anchor']) // (cfg['hours'] * 3600)) % len(cycles)
-    cycle = cycles[index]
-    return {'now_cycle': cycle, 'next_cycle': cycles[(index + 1) % len(cycles)],
+    return cycles[index], cycles[(index + 1) % len(cycles)], end
+
+
+def core_claimed_task_ids(user: dict, cycle: int) -> list[int]:
+    """返回永久首通与当期已领取的任务 ID，供 sc_75009 标记已领。"""
+    state = user.get('core_verification_claimed') or {}
+    if not isinstance(state, dict):
+        return []
+    result = []
+    for key in ('0', str(int(cycle))):
+        for task_id in state.get(key) or []:
+            try:
+                result.append(int(task_id))
+            except (TypeError, ValueError):
+                continue
+    return sorted(set(result))
+
+
+def core_stage_records(user: dict, cycle: int) -> list[dict]:
+    """返回当期已通关的迭代校验关卡，包含 Boss 与难度。"""
+    return [row for row in challenge_catalog()['core']
+            if int(row['cycle']) == int(cycle)
+            and progress(user, 67, int(row['id'])).get('clear_times')]
+
+
+def claim_core_rewards(user: dict, reward_ids) -> list[dict]:
+    """按真实通关进度领取 75006 任务，返回实际发放的道具列表。"""
+    now_cycle, _, _ = core_cycle_info()
+    catalog = core_reward_catalog()
+    records = core_stage_records(user, now_cycle)
+    max_diff1 = max([int(row['difficult']) for row in records if int(row['boss_type']) == 1] or [0])
+    max_diff2 = max([int(row['difficult']) for row in records if int(row['boss_type']) == 2] or [0])
+    min_diff = min(max_diff1, max_diff2)
+    state = user.get('core_verification_claimed')
+    if not isinstance(state, dict):
+        state = {}
+        user['core_verification_claimed'] = state
+
+    granted = []
+    for raw_id in reward_ids or []:
+        try:
+            task_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        task = catalog.get(task_id)
+        if not task:
+            continue
+        reward_type = int(task['reward_type'])
+        task_cycle = int(task['cycle'])
+        if reward_type in (1, 2) and task_cycle != now_cycle:
+            continue
+        if reward_type not in (1, 2, 3, 4):
+            continue
+
+        claim_cycle = 0 if reward_type == 4 else now_cycle
+        claimed = state.setdefault(str(claim_cycle), [])
+        if task_id in claimed:
+            continue
+
+        can_claim = False
+        if reward_type == 1:
+            required = task_id % 10
+            can_claim = required > 0 and max_diff1 >= required
+        elif reward_type == 2:
+            required = task_id % 10
+            can_claim = required > 0 and max_diff2 >= required
+        elif reward_type == 3:
+            required = task_id - 1000
+            can_claim = required > 0 and min_diff >= required
+        elif reward_type == 4:
+            if 2001 <= task_id <= 2008:
+                can_claim = min_diff >= task_id - 2000
+            elif 2011 <= task_id <= 2018:
+                can_claim = max_diff1 >= task_id - 2010
+            elif 2021 <= task_id <= 2028:
+                can_claim = max_diff2 >= task_id - 2020
+
+        if not can_claim:
+            continue
+        grant_rewards(user, task['rewards'])
+        claimed.append(task_id)
+        granted.extend(task['rewards'])
+    return granted
+
+
+def core_data(user: dict) -> dict:
+    """按客户端配置顺序轮换迭代校验，预告下期并只恢复当期进度。"""
+    rows = challenge_catalog()['core']
+    cycle, next_cycle, end = core_cycle_info()
+    return {'now_cycle': cycle, 'next_cycle': next_cycle,
             'refresh_timestamp': end, 'max_score_info': {},
+            'reward_list': core_claimed_task_ids(user, cycle),
             'stage_info': [{'id': row['id'], 'sign': 1,
                             'min_time': progress(user, 67, row['id'])['best_time'] * 1000}
                            for row in rows if row['cycle'] == cycle
