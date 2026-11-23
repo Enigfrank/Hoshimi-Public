@@ -73,6 +73,22 @@ def repeated_integers(values: list) -> list[int]:
     return result
 
 
+def _unknown_field_value(value):
+    """保留未知战报字段；可解析的嵌套 message 展开成数字字段。"""
+    if isinstance(value, int):
+        return value
+    try:
+        decoded = fields(value)
+    except ValueError:
+        decoded = {}
+    if decoded:
+        row = {}
+        for key, values in decoded.items():
+            row[str(key)] = [_unknown_field_value(v) for v in values]
+        return row
+    return '0x' + value.hex()
+
+
 def battle_report(data: bytes) -> dict:
     """保留结算统计、物品计数和每个角色的真实剩余生命。"""
     decoded = fields(data)
@@ -80,4 +96,10 @@ def battle_report(data: bytes) -> dict:
     result['characters'] = [{str(k): v[0] for k, v in fields(c).items()} for c in decoded.get(10, [])]
     for key in range(12, 19):
         result[str(key)] = repeated_integers(decoded.get(key, []))
+    # 官服原生战报还有未归档字段；完整保留，便于定位 A-02 等场景 NPC 的
+    # 生命值到底放在哪一层，而不是只能在服务器侧按满血猜。
+    for key, values in decoded.items():
+        if 1 <= key <= 18:
+            continue
+        result[f'x{key}'] = [_unknown_field_value(v) for v in values]
     return result

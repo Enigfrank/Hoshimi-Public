@@ -50,7 +50,15 @@ def prepare_battle(user: dict, common: dict) -> list[dict]:
     data = polyhedron_data(user)
     game, route = data['game'], data['game']['progress']
     stage = route.get('stage', {})
-    if (game['state'] != 2 or stage.get('save_point') != 1 or stage.get('stage_id') != common['dest']
+    event_id = int((route.get('event') or {}).get('id') or 0)
+    # 官服 1-1 的 3035199 是“战前整备”房间：仍走 54030/54003/54007
+    # 进入场景，但存档处于奖励保存点 save_point=2，且地图没有敌人。
+    prep_room = (int(stage.get('stage_id') or 0) == 3035199
+                 and int(common.get('dest') or 0) == 3035199
+                 and event_id in (9001, 9002))
+    if (game['state'] != 2
+            or (stage.get('save_point') != 1 and not (prep_room and stage.get('save_point') == 2))
+            or stage.get('stage_id') != common['dest']
             or common.get('activity_id', 0) not in (0, data['activity_id'])):
         raise ValueError('多维关卡不属于当前保存点')
     ids = route['fight_hero_id_list']
