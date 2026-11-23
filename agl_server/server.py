@@ -68,7 +68,7 @@ from .battle_rewards import inventory_pushes, equipment_data
 from .native_protocol import battle_report
 from .equip_exploration import exploration_request
 from .battle_progress import story_progress
-from .daily_progress import DAILY_COMMANDS, daily_request, daily_pushes
+from .daily_progress import DAILY_COMMANDS, daily_request, daily_pushes, newbie_data
 from .inventory_usage import use_items
 from .item_exchange import exchange_items, read_expired_currency
 from .chapter_rewards import chapter_reward_data, claim_chapter_reward, read_chapter_archive
@@ -318,6 +318,15 @@ class ClientSession:
             pass
 
 CLIENT_SESSIONS: Dict[asyncio.StreamWriter, ClientSession] = {}
+
+
+def _claimed_newbie_task(cmd: int, request: dict) -> bool:
+    """判断本次领取是否包含新手课程任务，用于决定是否补发活动阶段。"""
+    from .assignment_facts import NEWBIE_TASK_TYPES
+    from .gameplay_data import client_catalog
+    ids = [request['id']] if cmd == 28010 else list(request.get('id_list') or [])
+    types = {cfg['id']: cfg['type'] for cfg in client_catalog()['tasks']}
+    return any(types.get(task_id) in NEWBIE_TASK_TYPES for task_id in ids)
 
 
 def account_pushes(user):
@@ -803,11 +812,10 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 user = deepcopy(session.user_data)
                 values, pushes = explore_request(user, cmd, decode_message(cmd, pb_payload))
                 resp_pb = encode_message(resp_cmd, values)
-                if cmd == 67004:
-                    # 保持观测站队列 67001 紧邻派遣应答。
-                    pushes.insert(-1, (28001, task_data(user)))
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in pushes]
                 if cmd == 67004:
+                    # 派遣成功会推进每日观测站任务，需在队列表下发前带上任务进度。
+                    resp_extra.append((28001, encode_message(28001, task_data(user)), 0, 0.0))
                     resp_before = [(c, data) for c, data, _, _ in resp_extra]
                     resp_extra = None
                 get_user_manager().save_user(user)
@@ -863,10 +871,12 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                         user = deepcopy(session.user_data)
                         save_poster_touch(user, decode_message(cmd, pb_payload))
                         if user != session.user_data:
-                            pushes = assignment_pushes(user) + [(28001, task_data(user))]
-                            frames = b''.join(pack_ystcp(c, encode_message(c, v)) for c, v in pushes)
                             get_user_manager().save_user(user)
                             session.user_data = user
+                            # 大厅触摸会改变誓约任务进度，立即推送 14503，
+                            # 避免客户端继续显示交互前的缓存进度；每日交互任务同步刷新 28001。
+                            frames = b''.join(pack_ystcp(c, encode_message(c, v))
+                                              for c, v in [*assignment_pushes(user), (28001, task_data(user))])
                             session.writer.write(frames)
                 except ValueError as error:
                     print(f'[大厅触摸上报拒绝] {error}')
@@ -944,8 +954,8 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 pushes = inventory_pushes(user) + daily_pushes(user) + [
                     (14009, hero_info_data(user)), (46011, servant_data(user)),
                     (32009, profile_data(user)), (32011, scene_view_data(user))]
-                if cmd in (15016, 12046):
-                    pushes.append((28001, task_data(user)))
+                # 兑换与补给站领取会推进每日任务，随响应下发最新任务进度。
+                pushes.append((28001, task_data(user)))
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in pushes]
                 get_user_manager().save_user(user)
                 session.user_data = user
@@ -970,6 +980,9 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                     request.get('type', 0) if cmd == 28014 else 0)
                 resp_pb = encode_message(resp_cmd, values)
                 pushes = inventory_pushes(user) + [(28001, task_data(user)), (28019, task_points(user))]
+                if cmd in (28010, 28014) and _claimed_newbie_task(cmd, request):
+                    # 新手课程按天开放：当天任务领完后补发阶段，避免必须重登才解锁次日。
+                    pushes.append((59011, newbie_data(user)))
                 if 'backhome' in user:
                     state = user['backhome']['idol']
                     pushes.append((58191, {'get_id_list': state['get_id_list'], 'point': state['point']}))
@@ -1198,6 +1211,9 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                         session.user_data = user
                     return None
                 resp_pb = encode_message(resp_cmd, values)
+                if cmd == 32044:
+                    # 播放语音推进“查看角色语音”任务，立即补发任务面板避免停留在旧进度。
+                    resp_extra = [(28001, encode_message(28001, task_data(user)))]
                 if granted or cmd in (32052, 32058):
                     resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in inventory_pushes(user)]
                 if user != session.user_data:
@@ -1238,6 +1254,11 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
         elif cmd == 10050:  # cs_10050 -> sc_10051
             resp_cmd = 10051
             resp_pb = bridge.encode_sc_10051(state=0)
+            if session and session.user_data:
+                # 每日补给页的领取标记只随 12045 下发，页面模块在首次打开时才注册监听，
+                # 登录阶段的推送会丢失，心跳补发一次真实状态，避免已领取的时段显示为可领取。
+                supply = dict(daily_pushes(session.user_data))[12045]
+                resp_extra = [(12045, encode_message(12045, supply), 0, 0.0)]
             print(f"[服务端] 已生成 sc_10051 ({len(resp_pb)} 字节)")
         elif cmd == 10500:  # cs_10500 -> sc_10501
             resp_cmd = 10501
@@ -1318,15 +1339,13 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
             resp_pb = bridge.encode_sc_32109(result=0)
             print(f"[服务端] 已生成 sc_32109 ({len(resp_pb)} 字节)")
         elif cmd == 54030:  # cs_54030 -> sc_54031
-            request = {}
             from copy import deepcopy
             resp_cmd = 54031
             try:
                 if not session:
                     raise ValueError('未登录')
                 user = deepcopy(session.user_data)
-                request = decode_message(cmd, pb_payload)
-                battle, player = start_battle(user, request, max_times=10)
+                battle, player = start_battle(user, decode_message(cmd, pb_payload), max_times=10)
                 player_pb = encode_message(54003, player)
                 if battle['common']['type'] == 78:
                     from .rogue_team import rogue_battle_pushes
@@ -1342,8 +1361,12 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                                                              port=str(TCP_GATEWAY_PORT)), 0, 0.1)]
                 print(f"[战斗开始] 类型={battle['common']['type']} 关卡={battle['common']['dest']} ID={battle['id']}")
             except ValueError as error:
-                info = request.get('common_info', {})
-                print(f"[战斗拒绝] 类型={info.get('type')} 关卡={info.get('dest')} {error}")
+                try:
+                    info = decode_message(cmd, pb_payload)['common_info']
+                    detail = f" 类型={info.get('type')} 关卡={info.get('dest')}"
+                except Exception:
+                    detail = ''
+                print(f"[战斗拒绝] {error}{detail}")
                 resp_before = []
                 resp_pb = bridge.encode_sc_54031(result=1)
         elif cmd == 54038:

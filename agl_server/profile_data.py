@@ -44,6 +44,9 @@ def switch_poster_girl(user: dict, hero_id: int, previous: int | None = None) ->
             row['end_time'] = now
     user.setdefault('poster_girl_terms', []).append(
         {'hero_id': hero_id, 'start_time': now, 'end_time': 0})
+    # “更换主界面修正者”按真实切换次数累计，重复提交同一角色不计。
+    from .assignment_facts import bump, POSTER_CHANGE
+    bump(user, POSTER_CHANGE, 0)
 
 
 def profile_data(user: dict) -> dict:
@@ -90,11 +93,14 @@ def profile_request(user: dict, command: int, request: dict, rewards: list | Non
     response = {'result': 0}
     if command == 32044:
         # 语音界面只传角色编号，播放前校验角色已拥有且已解锁。
-        # 客户端以 result=0 为成功，成功后播放本地语音文件。
+        # 客户端以 result=0 为成功，成功后播放本地语音文件；
+        # 校验通过即计一次“查看角色语音”，对应任务条件 115。
         role_id = int(request['role_id'])
         if not any(int(hero.get('id', 0)) == role_id and hero.get('unlock', 1)
                    for hero in user.get('heroes', [])):
             raise ValueError('角色未拥有，无法播放语音')
+        from .assignment_facts import bump, HERO_VOICE_VIEW
+        bump(user, HERO_VOICE_VIEW, 0)
         return response
     profile = profile_data(user)
     if command in (32122, 32130):

@@ -273,4 +273,7 @@ def equip_request(user: dict, command: int, request: dict) -> dict:
             preview = {'effect_list': effects}
             previews.append(preview)
             response['enchant_preview'] = deepcopy(preview)
+            # “累计进行刻印赋能”按实际洗练次数累计。
+            from .assignment_facts import bump, EQUIP_ENCHANT
+            bump(user, EQUIP_ENCHANT, 0)
     return response

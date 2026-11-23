@@ -6,6 +6,9 @@ from functools import lru_cache
 from .currency_data import build_currency_balances, NATIVE_CURRENCY_IDS, MATERIAL_TOKEN_IDS, CORE_CURRENCY_FIELDS
 from .gameplay_protocol import read_client_data, decode_message
 
+# 计入“累计消耗”任务的货币：艾因索菲币与吨吨值。
+TRACKED_SPEND_ITEMS = frozenset({2, 4})
+
 
 @lru_cache(maxsize=512)
 def drop_config(drop_id: int) -> dict:
@@ -119,6 +122,9 @@ def grant_rewards(user: dict, rewards: list[dict]) -> None:
                 inventory.extend({'equip_id': next_id+i, 'prefab_id': item, 'hero_id': 0,
                                   'exp': 0, 'is_lock': False, 'now_break_level': 0, 'race': 0,
                                   'enchant_slot_list': []} for i in range(amount))
+                if int((cfg['equip'] or {}).get('starlevel', 0)) >= 5:
+                    from .assignment_facts import bump, FIVE_STAR_DROP
+                    bump(user, FIVE_STAR_DROP, 0, amount)
                 continue
             if cfg['type'] == 12:
                 frames = user.setdefault('unlocked_frames', [])
@@ -175,7 +181,7 @@ def inventory_pushes(user: dict) -> list[tuple]:
 
 
 def spend_items(user: dict, costs: list[dict]) -> None:
-    """合并并校验全部消耗后扣款，拒绝负数及余额不足。"""
+    """合并并校验全部消耗后扣款，拒绝负数及余额不足；顺带累计消耗类任务进度。"""
     totals = {}
     for cost in costs:
         if cost['num'] <= 0:
@@ -194,3 +200,6 @@ def spend_items(user: dict, costs: list[dict]) -> None:
                 user[core[item]] = value
         else:
             user['materials'][str(item)] -= amount
+        if item in TRACKED_SPEND_ITEMS:
+            from .assignment_facts import bump, SPEND
+            bump(user, SPEND, item, amount)

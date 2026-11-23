@@ -24,6 +24,7 @@ def client_catalog() -> dict:
         for _, id in ipairs(cfg.all) do
             local c = cfg[id] or require('AssignmentCfg2')[id]
             if c.type == 3 or c.type == 5 or c.type == 6 or c.type == 7 or c.type == 8 or c.type == 9
+                or c.type == 10
                 or c.type == 603 or c.type == 604 or c.type == 605 or c.type == 606
                 or c.type == 801 or c.type == 802 or c.type == 803 or c.type == 804 or c.type == 3007
                 or c.type == 901 or c.type == 902 or c.type == 903
@@ -81,6 +82,7 @@ def story_phase(user: dict) -> int:
 
 def task_data(user: dict) -> dict:
     """下发有效任务及真实存档进度，剧情任务只给当前章节并随领取推进。"""
+    from .assignment_facts import newbie_max_phase, reconcile_tasks
     if 'resident_rogue' in user:
         from .resident_tasks import update_rogue_tasks
         update_rogue_tasks(user)
@@ -98,7 +100,9 @@ def task_data(user: dict) -> dict:
     if 'mult_heart_demon' in user:
         from .mult_heart_demon import update_demon_tasks
         update_demon_tasks(user)
-    saved = user.get("tasks", {})
+    # 新手课程与日常委托的进度来自存档事实与累计计数器，下发前统一补齐。
+    reconcile_tasks(user)
+    saved = user["tasks"]
     phase = story_phase(user)
     tasks = []
     activities = {cfg['activity_id'] for cfg in build_available_activities() if cfg['state'] == 1}
@@ -108,9 +112,12 @@ def task_data(user: dict) -> dict:
         if cfg["type"] == 3 and cfg["phase"] != phase:
             continue
         entry = saved.get(str(cfg["id"]), {})
-        tasks.append({"id": cfg["id"], "progress": entry.get("progress", 0),
+        need = int(cfg.get("need") or 0)
+        progress = int(entry.get("progress", 0))
+        tasks.append({"id": cfg["id"], "progress": min(need, progress) if need else progress,
                       "complete_flag": entry.get("complete_flag", 0)})
-    return {"send_type": 0, "newbie_phase": 1, "assignment_phase": phase, "assignment_list": tasks}
+    return {"send_type": 0, "newbie_phase": newbie_max_phase(user),
+            "assignment_phase": phase, "assignment_list": tasks}
 
 
 def task_points(user: dict) -> dict:
@@ -172,6 +179,9 @@ def build_gameplay_pushes(user: dict) -> list[tuple]:
         *training_initial_pushes(user),
         *backhome_initial_pushes(user),
     ]
+    # 每日补给页首次打开时才初始化自己的数据，登录包靠前的 12045 会被页面初始状态覆盖，
+    # 这里在整包末尾补发一次，保证进入大厅后补给页拿到服务端的真实领取状态。
+    data.append((12045, dict(daily_pushes(user))[12045]))
     return [(cmd, encode_message(cmd, values), 0, 0.0) for cmd, values in data]
 
 
@@ -214,7 +224,7 @@ def battle_progress_pushes(user: dict, stage_type: int) -> list[tuple]:
     elif stage_type == 12:
         data = [(47001, {'base_stage_list': [{'id': v['id'], 'clear_times': v['clear_times']}
                  for v in stage_progress(user, 12, catalog['teach'])]})]
-    elif stage_type in (13, 20, 76):
+    elif stage_type == 13:
         data = [(47003, hero_teaching(user))]
     elif stage_type == 40:
         data = exploration_pushes(user)
