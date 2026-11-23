@@ -999,6 +999,13 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 print(f'[古远虚影拒绝] 指令={cmd} {error}')
                 resp_before = []
                 resp_pb = encode_message(resp_cmd, {'result': 1})
+        elif cmd == 69002:
+            # 黑区 Ω / 排行榜页会查询通用榜单；没有真实榜单时回空列表，
+            # 不能落到“未实现”返回 result=1，否则页面会弹服务器内部错误。
+            request = decode_message(cmd, pb_payload)
+            resp_cmd = 69003
+            resp_pb = encode_message(69003, {'result': 0, 'children_rank_list': []})
+            resp_extra = []
         elif cmd in POLYHEDRON_COMMANDS:
             from copy import deepcopy
             resp_cmd = cmd + 1

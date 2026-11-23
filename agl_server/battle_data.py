@@ -152,13 +152,17 @@ def start_battle(user: dict, request: dict, max_times: int = 5) -> tuple[dict, d
         from .challenge_data import validate_enchant_stage
         validate_enchant_stage(user, common['dest'])
     if common['type'] == 35:
-        from .challenge_data import challenge_catalog
+        from .challenge_data import challenge_catalog, mythic_final_teams
         difficulty = user.get('mythic_final_difficulty', 1)
         final = next((c for c in challenge_catalog()['final'] if c['id'] == difficulty), None)
+        teams = mythic_final_teams(final) if final else []
         index = common['dest']
-        if final is None or not 1 <= index <= len(final['stage_list']):
+        # 1-19 级为单队直达选人，客户端可能下发 0、难度号或关卡号而不是队伍 1。
+        if final is not None and len(teams) == 1 and index != 1:
+            index = 1
+        if final is None or not 1 <= index <= len(teams):
             raise ValueError('终末黑区队伍序号无效')
-        stages = final['stage_list'][index-1]
+        stages = teams[index-1]
         cleared = user.get('mythic_final_runs', {}).get(str(difficulty), {}).get(str(index), {}).get('stages', [])
         stage_id = next((s for s in stages if s not in cleared), None)
         if stage_id is None:
@@ -286,6 +290,7 @@ def start_battle(user: dict, request: dict, max_times: int = 5) -> tuple[dict, d
         battle['neural'] = neural
     if common['type'] == 35:
         battle['final_difficulty'] = difficulty
+        battle['final_team_index'] = index
     if common['type'] == 82:
         run = validate_demon_battle(user, common)
         battle['demon_serial'] = run['serial']
@@ -434,15 +439,16 @@ def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
             complete_chapter_stage(user, common['dest'])
         battle['resident_rewards'] = complete_resident_battle(user, battle, seconds, info)
         if common['type'] == 35:
-            from .challenge_data import challenge_catalog
+            from .challenge_data import challenge_catalog, mythic_final_teams
             difficulty = battle['final_difficulty']
             runs = user.setdefault('mythic_final_runs', {}).setdefault(str(difficulty), {})
-            team = runs.setdefault(str(common['dest']), {'stages': [], 'use_time': 0})
+            team_index = battle.get('final_team_index', common['dest'])
+            team = runs.setdefault(str(team_index), {'stages': [], 'use_time': 0})
             team['stages'].append(battle['config']['id'])
             team['use_time'] += seconds
             final = next(c for c in challenge_catalog()['final'] if c['id'] == difficulty)
             if all(all(s in runs.get(str(i), {}).get('stages', []) for s in stages)
-                   for i, stages in enumerate(final['stage_list'], 1)):
+                   for i, stages in enumerate(mythic_final_teams(final), 1)):
                 cleared = user.setdefault('mythic_final_cleared', [])
                 if difficulty not in cleared:
                     cleared.append(difficulty)

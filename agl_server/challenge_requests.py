@@ -7,7 +7,7 @@ from .battle_rewards import drop_config, roll_drops, grant_rewards
 from .challenge_data import (boss_area, boss_group_ids, challenge_catalog,
                             rogue_score_reward_ids, rogue_selection_catalog)
 
-CHALLENGE_COMMANDS = {44012, 44024, 44026, 44028, 45004, 45006, 45104,
+CHALLENGE_COMMANDS = {44012, 44024, 44026, 44028, 44030, 45004, 45006, 45104,
                       45108, 45110, 45204, 55002, 55004, 55006, 55012, 55020, 88100, 88316}
 
 
@@ -41,12 +41,32 @@ def challenge_request(user: dict, command: int, request: dict) -> dict:
         elif command == 44026:
             user.setdefault('mythic_final_runs', {}).pop(str(difficulty), None)
         else:
-            claimed = user.setdefault('mythic_final_rewards', [])
-            if difficulty in claimed or difficulty not in user.get('mythic_final_cleared', []):
+            claimed = user.get('mythic_final_rewards') or []
+            user['mythic_final_rewards'] = claimed
+            # 通关高等级会同时解锁低等级奖励；官服 clear_list 只记最高档，
+            # 不能要求领取档位必须精确出现在 clear_list 里。
+            max_clear = max((int(x) for x in (user.get('mythic_final_cleared') or [])), default=0)
+            if difficulty in claimed or difficulty > max_clear:
                 raise ValueError('终末黑区未通关或已领取奖励')
             rewards = [{'id': i, 'num': n} for i, n in cfg['reward_list']]
             claimed.append(difficulty)
+            claimed.sort()
             response['item_list'] = rewards
+    elif command == 44030:
+        # 黑区奖励页“一键领取”：领取所有已通关、尚未领取的终末黑区档位。
+        cleared = user.get('mythic_final_cleared') or []
+        claimed = sorted({int(x) for x in (user.get('mythic_final_rewards') or [])})
+        user['mythic_final_rewards'] = claimed
+        # 通关 30 档等于 1~30 档全部达成；只遍历 clear_list 会漏掉低档奖励。
+        max_clear = max((int(x) for x in cleared), default=0)
+        for difficulty in range(1, max_clear + 1):
+            cfg = next((c for c in catalog['final'] if c['id'] == difficulty), None)
+            if not cfg or difficulty in claimed:
+                continue
+            rewards.extend({'id': i, 'num': n} for i, n in cfg['reward_list'])
+            claimed.append(difficulty)
+        claimed.sort()
+        response['item_list'] = rewards
     elif command in (45004, 45006):
         area = boss_area(user)
         groups = boss_group_ids(user, area)[:area['boss_nums']]
