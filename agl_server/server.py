@@ -41,7 +41,8 @@ from .gameplay_data import build_gameplay_pushes, passport_data, equip_battle_da
 from .gameplay_protocol import encode_message, decode_message, message_has_field
 from .battle_data import start_battle, settle_battle, start_story
 from .challenge_data import (boss_data, enchantment_data, challenge_pushes,
-                            refresh_enchantment)
+                            refresh_enchantment, seizure_data,
+                            claim_equip_seizure_rewards)
 from .battle_udp import BattleUDP
 from .reserve_data import save_reserve, save_battle_team
 from .profile_data import profile_data, profile_request, PROFILE_COMMANDS
@@ -1384,6 +1385,16 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 user['battle_session'] = battle
                 resp_pb = encode_message(resp_cmd, values)
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in inventory_pushes(user)]
+                if battle['common']['type'] == 53:
+                    # 35013 必须先于 54033 到达：结算页在 54033 回调里读 GetResultScore，
+                    # 晚到会读到 0，圆环就退回显示战斗时长。
+                    seizure = battle.get('seizure_settlement') or {}
+                    resp_before = [(35013, encode_message(35013, {
+                        'is_valid': bool(seizure.get('is_valid')),
+                        'score': int(seizure.get('score') or 0),
+                        'today_max_score': int(seizure.get('today_max_score') or 0),
+                        'sum_score': int(seizure.get('sum_score') or 0),
+                    }))]
                 resp_extra += battle_progress_pushes(user, battle['common']['type'])
                 if battle['common']['type'] == 1003:
                     # 结算回调立即读取深阱分数和首领阶段，必须先到达客户端。
@@ -1409,6 +1420,25 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 resp_before = []
                 resp_extra = None
                 resp_pb = encode_message(resp_cmd, {'result': 1})
+        elif cmd == 35014:
+            from copy import deepcopy
+            resp_cmd = 35015
+            try:
+                if not session:
+                    raise ValueError('未登录')
+                user = deepcopy(session.user_data)
+                request = decode_message(cmd, pb_payload)
+                values = claim_equip_seizure_rewards(
+                    user, request.get('id_list') or [])
+                resp_pb = encode_message(resp_cmd, values)
+                resp_extra = [(c, encode_message(c, v), 0, 0.0)
+                              for c, v in inventory_pushes(user)]
+                resp_extra.append((35011, encode_message(35011, seizure_data(user)), 0, 0.0))
+                session.user_data = user
+                get_user_manager().save_user(user)
+            except (ValueError, KeyError):
+                resp_extra = None
+                resp_pb = encode_message(resp_cmd, {'result': 1, 'reward_list': []})
         elif cmd == 54034:
             request = decode_message(cmd, pb_payload)
             resp_cmd = 54035

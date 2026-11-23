@@ -205,6 +205,9 @@ def battle_progress_pushes(user: dict, stage_type: int) -> list[tuple]:
     elif stage_type == 93:
         from .neural_matrix import neural_data, neural_state
         data = [(89801, neural_data(user)), (89811, {'score': neural_state(user)['last_score']})]
+    elif stage_type == 53:
+        from .challenge_data import seizure_data
+        data = [(35011, seizure_data(user))]
     elif stage_type == 8:
         from .challenge_data import enchantment_data
         data = [(24009, story_progress(user)), (42001, enchantment_data(user))]
