@@ -48,7 +48,7 @@ def _resolve_battle_hero_id(selected_id: int, hero_type: int) -> int:
 
 def _apply_dynamic_main_damage_type(team: list[dict], hero_ids: list[int]) -> None:
     """按两名队友的属性等概率选择诗寇蒂的主伤害属性。"""
-    if len(team) != len(hero_ids) or _DYNAMIC_ATTRIBUTE_HERO not in hero_ids:
+    if len(hero_ids) != 3 or hero_ids.count(_DYNAMIC_ATTRIBUTE_HERO) != 1:
         return
     teammate_attributes = [
         _hero_attack_attribute(hero_id)
@@ -102,7 +102,7 @@ def chapter_stage_cleared(user: dict, stage_id: int) -> bool:
 def battle_cost_for(user: dict, stage_type: int, stage_id: int, config: dict) -> dict:
     """按玩法计算本次消耗；主线剧情关卡首通前消耗配置体力，通关后为 0。"""
     cost = battle_cost(config)
-    if stage_type == 1 and chapter_stage_cleared(user, stage_id):
+    if stage_type == 1 and (user.get('account_template') != 'normal' or chapter_stage_cleared(user, stage_id)):
         return {'id': cost['id'], 'num': 0}
     return cost
 
@@ -114,7 +114,7 @@ def battle_exp_reward(config: dict, cost: dict, times: int) -> int:
     configured = int(config.get('user_exp') or 0)
     if configured > 0:
         return configured * times
-    return cost['num'] if cost['id'] == STAMINA_CURRENCY_ID else 0
+    return cost['num'] * times if cost['id'] == STAMINA_CURRENCY_ID else 0
 
 
 @lru_cache(maxsize=512)
@@ -246,10 +246,6 @@ def start_battle(user: dict, request: dict, max_times: int = 5) -> tuple[dict, d
     by_id = {h['hero_base_info']['id']: h for h in heroes}
     servants = servant_data(user)['servant_list']
     team = polyhedron_team if common['type'] == 52 else []
-    team_hero_ids = [
-        _resolve_battle_hero_id(member['hero_base_info']['id'], member.get('hero_type', 1))
-        for member in team
-    ]
     for selection in ([] if common['type'] == 52 else common['hero_list']):
         hero_id = selection['hero_id']
         if not hero_id:
@@ -269,11 +265,12 @@ def start_battle(user: dict, request: dict, max_times: int = 5) -> tuple[dict, d
         else:
             raise ValueError('角色未拥有')
         team.append(member)
-        team_hero_ids.append(_resolve_battle_hero_id(
-            member['hero_base_info']['id'], member.get('hero_type', hero_type)))
     if not team:
         raise ValueError('战斗队伍为空')
-    _apply_dynamic_main_damage_type(team, team_hero_ids)
+    if len(team) == 3:
+        hero_ids = [_resolve_battle_hero_id(member['hero_base_info']['id'], member['hero_type'])
+                    for member in team]
+        _apply_dynamic_main_damage_type(team, hero_ids)
     now = int(time.time())
     battle_id = max(next(_BATTLE_IDS), user.get('last_battle_id', 0)+1)
     user['last_battle_id'] = battle_id

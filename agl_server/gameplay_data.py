@@ -214,7 +214,7 @@ def battle_progress_pushes(user: dict, stage_type: int) -> list[tuple]:
     elif stage_type == 12:
         data = [(47001, {'base_stage_list': [{'id': v['id'], 'clear_times': v['clear_times']}
                  for v in stage_progress(user, 12, catalog['teach'])]})]
-    elif stage_type == 13:
+    elif stage_type in (13, 20, 76):
         data = [(47003, hero_teaching(user))]
     elif stage_type == 40:
         data = exploration_pushes(user)

@@ -803,10 +803,11 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 user = deepcopy(session.user_data)
                 values, pushes = explore_request(user, cmd, decode_message(cmd, pb_payload))
                 resp_pb = encode_message(resp_cmd, values)
+                if cmd == 67004:
+                    # 保持观测站队列 67001 紧邻派遣应答。
+                    pushes.insert(-1, (28001, task_data(user)))
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in pushes]
                 if cmd == 67004:
-                    # 派遣成功会推进每日观测站任务，需在队列表下发前带上任务进度。
-                    resp_extra.append((28001, encode_message(28001, task_data(user)), 0, 0.0))
                     resp_before = [(c, data) for c, data, _, _ in resp_extra]
                     resp_extra = None
                 get_user_manager().save_user(user)
@@ -862,12 +863,10 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                         user = deepcopy(session.user_data)
                         save_poster_touch(user, decode_message(cmd, pb_payload))
                         if user != session.user_data:
+                            pushes = assignment_pushes(user) + [(28001, task_data(user))]
+                            frames = b''.join(pack_ystcp(c, encode_message(c, v)) for c, v in pushes)
                             get_user_manager().save_user(user)
                             session.user_data = user
-                            # 大厅触摸会改变誓约任务进度，立即推送 14503，
-                            # 避免客户端继续显示交互前的缓存进度；每日交互任务同步刷新 28001。
-                            frames = b''.join(pack_ystcp(c, encode_message(c, v))
-                                              for c, v in [*assignment_pushes(user), (28001, task_data(user))])
                             session.writer.write(frames)
                 except ValueError as error:
                     print(f'[大厅触摸上报拒绝] {error}')
@@ -945,8 +944,8 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 pushes = inventory_pushes(user) + daily_pushes(user) + [
                     (14009, hero_info_data(user)), (46011, servant_data(user)),
                     (32009, profile_data(user)), (32011, scene_view_data(user))]
-                # 兑换与补给站领取会推进每日任务，随响应下发最新任务进度。
-                pushes.append((28001, task_data(user)))
+                if cmd in (15016, 12046):
+                    pushes.append((28001, task_data(user)))
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in pushes]
                 get_user_manager().save_user(user)
                 session.user_data = user
@@ -1319,13 +1318,15 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
             resp_pb = bridge.encode_sc_32109(result=0)
             print(f"[服务端] 已生成 sc_32109 ({len(resp_pb)} 字节)")
         elif cmd == 54030:  # cs_54030 -> sc_54031
+            request = {}
             from copy import deepcopy
             resp_cmd = 54031
             try:
                 if not session:
                     raise ValueError('未登录')
                 user = deepcopy(session.user_data)
-                battle, player = start_battle(user, decode_message(cmd, pb_payload), max_times=10)
+                request = decode_message(cmd, pb_payload)
+                battle, player = start_battle(user, request, max_times=10)
                 player_pb = encode_message(54003, player)
                 if battle['common']['type'] == 78:
                     from .rogue_team import rogue_battle_pushes
@@ -1341,12 +1342,8 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                                                              port=str(TCP_GATEWAY_PORT)), 0, 0.1)]
                 print(f"[战斗开始] 类型={battle['common']['type']} 关卡={battle['common']['dest']} ID={battle['id']}")
             except ValueError as error:
-                try:
-                    info = decode_message(cmd, pb_payload)['common_info']
-                    detail = f" 类型={info.get('type')} 关卡={info.get('dest')}"
-                except Exception:
-                    detail = ''
-                print(f"[战斗拒绝] {error}{detail}")
+                info = request.get('common_info', {})
+                print(f"[战斗拒绝] 类型={info.get('type')} 关卡={info.get('dest')} {error}")
                 resp_before = []
                 resp_pb = bridge.encode_sc_54031(result=1)
         elif cmd == 54038:

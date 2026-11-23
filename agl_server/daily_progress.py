@@ -95,9 +95,6 @@ def daily_request(user: dict, command: int, request: dict) -> dict:
         spend_items(user, [{'id': 1, 'num': row[f'cost_diamond_to_{suffix}']}])
         rewards = [{'id': 2 if coin else 4, 'num': amount}]
         state[field] += 1
-        if not coin:
-            # 「使用移转之辉补充吨吨值」对应扣移转之辉换吨吨值的兑换，按成功次数推进。
-            update_task_progress(user, 3)
     elif command == 15020:
         num = request['num']
         if num <= 0:
@@ -128,8 +125,6 @@ def daily_request(user: dict, command: int, request: dict) -> dict:
             raise ValueError('体力超过可持有上限')
         rewards = [{'id': row[1], 'num': row[2]}]
         state['fatigue_claimed'].append(hour)
-        # 「吨吨补给站」按时段领取吨吨值，领取成功才推进每日任务。
-        update_task_progress(user, 10)
     else:
         saved = user.setdefault('newbie', {})
         saved.setdefault('trigger_time', user.get('created_at', now))
@@ -162,4 +157,8 @@ def daily_request(user: dict, command: int, request: dict) -> dict:
             rewards = [{'id': row[1][0], 'num': row[1][1]}]
             claimed.append(index)
     grant_rewards(user, rewards)
+    if command == 15016:
+        update_task_progress(user, 3)
+    elif command == 12046:
+        update_task_progress(user, 10)
     return {'result': 0, **({'reward_list': rewards} if command != 12046 else {})}

@@ -28,10 +28,16 @@ def progress_catalog() -> dict:
         local c=require('BattleHeroTeachStageCfg')
         for _,id in ipairs(c.all) do r.hero_teach[#r.hero_teach+1]=c[id] end
         -- 试用关与角色研习关的归属，供 3-3 等入口的“已体验”判断使用。
-        c=require('BattleHeroTrialStageCfg')
-        for _,id in ipairs(c.all) do r.trial_heroes[tostring(id)]=c[id].hero_list[1][1] end
-        c=require('BattleResidentHeroTrialStageCfg')
-        for _,id in ipairs(c.all) do r.trial_heroes[tostring(id)]=c[id].hero_list[1][1] end
+        for kind,name in pairs({[20]='BattleHeroTrialStageCfg',[76]='BattleResidentHeroTrialStageCfg'}) do
+            c=require(name)
+            for _,id in ipairs(c.all) do
+                local heroes={}
+                for _,hero in ipairs(type(c[id].hero_list)=='table' and c[id].hero_list or {}) do
+                    if hero[1] and hero[1]>0 then heroes[#heroes+1]=hero[1] end
+                end
+                r.trial_heroes[kind..':'..id]=heroes
+            end
+        end
         c=require('ChapterCfg')
         local stages=require('BattleChapterStageCfg')
         local seen={}
@@ -63,7 +69,8 @@ def story_progress(user: dict) -> dict:
     rows = stage_progress(user, 1, list(stages))
     for row in rows:
         cfg = stages[row['id']]
-        seed = int(cfg['cost'] == 0) if initial else 1
+        cost = cfg['cost']
+        seed = int((cost[1] if isinstance(cost, list) else cost) == 0) if initial else 1
         row['clear_times'] = max(seed, row['clear_times'])
         row['star_list'] = [int(i <= cfg['star_count'] and (not initial or row['star_list'][i - 1]))
                             for i in (1, 2, 3)]
@@ -86,28 +93,16 @@ def hero_teaching(user: dict) -> dict:
     """
     catalog = progress_catalog()
     groups = {}
-    covered = {}
+    recorded = user.get('battle_progress', {})
+    trial_heroes = {hero for key, heroes in catalog['trial_heroes'].items()
+                    if recorded.get(key, {}).get('clear_times', 0) > 0 for hero in heroes}
     for cfg in catalog['hero_teach']:
-        saved = progress(user, 13, cfg['id'])
-        if not saved.get('clear_times'):
-            continue
         hero = cfg['hero_list'][0][0]
-        groups.setdefault(hero, []).append({'id': cfg['id'], 'clear_times': saved['clear_times'],
-                                            'star_list': len(saved['stars'])})
-        covered.setdefault(hero, set()).add(cfg['id'])
-    trial_heroes = catalog.get('trial_heroes', {})
-    for key, saved in user.get('battle_progress', {}).items():
-        kind, stage_id = map(int, key.split(':'))
-        if kind not in (20, 76) or not saved.get('clear_times'):
-            continue
-        hero = trial_heroes.get(str(stage_id))
-        if hero is None:
-            continue
-        for cfg in catalog['hero_teach']:
-            if cfg['hero_list'][0][0] != hero or cfg['id'] in covered.get(hero, ()):
-                continue
-            groups.setdefault(hero, []).append({'id': cfg['id'], 'clear_times': 1, 'star_list': 0})
-            covered.setdefault(hero, set()).add(cfg['id'])
+        saved = progress(user, 13, cfg['id'])
+        clear_times = saved.get('clear_times', 0)
+        if clear_times or hero in trial_heroes:
+            groups.setdefault(hero, []).append({'id': cfg['id'], 'clear_times': clear_times or 1,
+                                                'star_list': len(saved.get('stars', []))})
     return {'hero_teaching_list': [{'hero_id': h, 'stage_list': stages} for h, stages in groups.items()]}
 
 
