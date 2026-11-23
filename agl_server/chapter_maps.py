@@ -40,9 +40,14 @@ def chapter_state(user):
         'event_list': [], 'backtrack_list': []})
 
 
+def cleared_stage_count(user, stage):
+    """读取实际剧情通关次数，供地图和任务使用。"""
+    return user.get('battle_progress', {}).get(f'1:{stage}', {}).get('clear_times', 0)
+
+
 def cleared_stage(user, stage):
     """读取实际剧情通关事实，普通账号入口解锁不算完成事件。"""
-    return user.get('battle_progress', {}).get(f'1:{stage}', {}).get('clear_times', 0) > 0
+    return cleared_stage_count(user, stage) > 0
 
 
 def event_map(event):
@@ -142,15 +147,38 @@ def validate_chapter_stage(user, stage):
 
 
 def update_chapter_tasks(user):
-    """专用任务只取真实战斗记录，保存领奖标志并允许重启恢复。"""
+    """剧情与专用任务只取真实战斗和已领取记录，保存后可在重启时恢复。"""
     from .gameplay_data import client_catalog
-    for cfg in client_catalog()['tasks']:
-        if cfg['type'] not in (801, 802, 803, 804) or cfg['condition'] != 401:
+    catalog, saved = client_catalog()['tasks'], user.setdefault('tasks', {})
+    claimed = {}
+    summaries = []
+    for cfg in catalog:
+        kind, condition = cfg['type'], cfg['condition']
+        key = str(cfg['id'])
+        if kind == 3:
+            if condition == 500:
+                summaries.append(cfg)
+                continue
+            if saved.get(key, {}).get('complete_flag'):
+                phase = cfg['phase']
+                claimed[phase] = claimed.get(phase, 0) + 1
+        if condition != 401 or kind not in (3, 801, 802, 803, 804):
             continue
-        stage = cfg['additional_parameter'][0]
-        value = user.get('battle_progress', {}).get(f'1:{stage}', {}).get('clear_times', 0)
-        row = user.setdefault('tasks', {}).setdefault(str(cfg['id']), {'progress': 0, 'complete_flag': 0})
-        row['progress'] = max(row['progress'], min(cfg['need'], value))
+        value = cleared_stage_count(user, cfg['additional_parameter'][0])
+        if not value and key not in saved:
+            continue
+        row = saved.setdefault(key, {'progress': 0, 'complete_flag': 0})
+        row['progress'] = max(row.get('progress', 0), min(cfg['need'], value))
+    for cfg in summaries:
+        params = cfg['additional_parameter'] or []
+        if len(params) < 2 or params[0] != 3:
+            continue
+        done, key = claimed.get(params[1], 0), str(cfg['id'])
+        if not done and key not in saved:
+            continue
+        row = saved.setdefault(key, {'progress': 0, 'complete_flag': 0})
+        if not row.get('complete_flag'):
+            row['progress'] = min(cfg['need'], done)
 
 
 def legacy_row(user, map_id):

@@ -1,5 +1,6 @@
 """单人战斗队伍、会话和结算数据。"""
 
+import random
 import time
 from copy import deepcopy
 from functools import lru_cache
@@ -7,6 +8,7 @@ from itertools import count
 
 from .gameplay_protocol import decode_message, read_client_data
 from .proto_bridge import get_bridge
+from .currency_data import STAMINA_CURRENCY_ID
 from .battle_rewards import drop_config, roll_drops, grant_rewards
 from .hero_preferences import hero_info_data
 from .battle_rewards import equipment_data
@@ -18,6 +20,49 @@ from .resident_battle import RESIDENT_STAGE_CONFIGS, complete_resident_battle
 
 _BATTLE_IDS = count(int(time.time()))
 
+_DYNAMIC_ATTRIBUTE_HERO = 1085
+_NORMAL_ATTACK_ATTRIBUTES = frozenset((0, 2, 4, 6, 8, 10, 12, 14))
+
+
+@lru_cache(maxsize=256)
+def _hero_attack_attribute(hero_id: int) -> int:
+    """读取角色基础攻击属性，动态属性由战斗队伍另行解析。"""
+    if hero_id <= 0:
+        return -1
+    value = read_client_data(
+        f"(function() local h=require('HeroCfg')[{int(hero_id)}]; local a=h and h.ATK_attribute; "
+        "return type(a)=='table' and tonumber(a[1]) or -1 end)()"
+    )
+    return int(value)
+
+
+def _resolve_battle_hero_id(selected_id: int, hero_type: int) -> int:
+    """把试用模板编号解析为 HeroCfg 中的实际角色编号。"""
+    if hero_type != 2:
+        return int(selected_id)
+    value = read_client_data(
+        f"((require('HeroStandardSystemCfg')[{int(selected_id)}] or {{}}).hero_id or 0)"
+    )
+    return int(value)
+
+
+def _apply_dynamic_main_damage_type(team: list[dict], hero_ids: list[int]) -> None:
+    """按两名队友的属性等概率选择诗寇蒂的主伤害属性。"""
+    if len(hero_ids) != 3 or hero_ids.count(_DYNAMIC_ATTRIBUTE_HERO) != 1:
+        return
+    teammate_attributes = [
+        _hero_attack_attribute(hero_id)
+        for hero_id in hero_ids
+        if hero_id != _DYNAMIC_ATTRIBUTE_HERO
+    ]
+    if len(teammate_attributes) != 2 or any(
+            attribute not in _NORMAL_ATTACK_ATTRIBUTES for attribute in teammate_attributes):
+        return
+    dynamic_attribute = random.choice(teammate_attributes)
+    for member, hero_id in zip(team, hero_ids):
+        if hero_id == _DYNAMIC_ATTRIBUTE_HERO:
+            member['main_damage_type'] = dynamic_attribute
+
 
 STAGE_CONFIGS = {
     **RESIDENT_STAGE_CONFIGS,
@@ -25,6 +70,7 @@ STAGE_CONFIGS = {
     7: 'BattleTowerStageCfg', 8: 'BattleEnchantmentStageCfg', 9: 'BattleEquipStageCfg',
     10: 'BattleBossStageCfg', 100: 'BattleBossStageCfg', 11: 'BattleMythicStageCfg',
     12: 'BattleBaseTeachStageCfg', 13: 'BattleHeroTeachStageCfg',
+    20: 'BattleHeroTrialStageCfg', 76: 'BattleResidentHeroTrialStageCfg',
     35: 'BattleMythicFinalCfg', 53: 'BattleEquipSeizureStageCfg',
     40: 'BattleEquipBreakThroughMaterialStageCfg', 1003: 'BattleAbyssCfg',
     1006: 'BattleAdvanceTestStageCfg', 52: 'BattlePolyhedronStageCfg',
@@ -46,6 +92,29 @@ def battle_cost(config: dict) -> dict:
     if isinstance(cost, (list, tuple)) and len(cost) >= 2:
         return {'id': int(cost[0]), 'num': int(cost[1])}
     raise ValueError('关卡成本配置无效')
+
+
+def chapter_stage_cleared(user: dict, stage_id: int) -> bool:
+    """判断主线剧情关卡是否已有真实通关记录。"""
+    return int(user.get('battle_progress', {}).get(f'1:{stage_id}', {}).get('clear_times', 0)) > 0
+
+
+def battle_cost_for(user: dict, stage_type: int, stage_id: int, config: dict) -> dict:
+    """按玩法计算本次消耗；主线剧情关卡首通前消耗配置体力，通关后为 0。"""
+    cost = battle_cost(config)
+    if stage_type == 1 and (user.get('account_template') != 'normal' or chapter_stage_cleared(user, stage_id)):
+        return {'id': cost['id'], 'num': 0}
+    return cost
+
+
+def battle_exp_reward(config: dict, cost: dict, times: int) -> int:
+    """管理员经验优先取关卡配置 user_exp，缺失时按本次实际消耗的体力等量折算；未付费进入不给经验。"""
+    if cost['num'] <= 0:
+        return 0
+    configured = int(config.get('user_exp') or 0)
+    if configured > 0:
+        return configured * times
+    return cost['num'] * times if cost['id'] == STAMINA_CURRENCY_ID else 0
 
 
 @lru_cache(maxsize=512)
@@ -122,7 +191,7 @@ def start_battle(user: dict, request: dict, max_times: int = 5) -> tuple[dict, d
     times = common.get('battle_times') or 1
     if not 1 <= times <= max_times:
         raise ValueError('战斗倍率无效')
-    cost = battle_cost(cfg)
+    cost = battle_cost_for(user, common['type'], common['dest'], cfg)
     amount = cost['num'] * times
     if amount:
         from .currency_data import build_currency_balances
@@ -168,6 +237,9 @@ def start_battle(user: dict, request: dict, max_times: int = 5) -> tuple[dict, d
     if common['type'] == 1:
         from .chapter_maps import validate_chapter_stage
         validate_chapter_stage(user, common['dest'])
+    if common['type'] in (20, 76):
+        from .hero_trial import prepare_hero_trial_battle
+        prepare_hero_trial_battle(common, cfg)
     bridge = get_bridge()
     heroes = hero_info_data(user)['hero_info_list']
     equipment = equipment_data(user)['equip_list']
@@ -195,6 +267,10 @@ def start_battle(user: dict, request: dict, max_times: int = 5) -> tuple[dict, d
         team.append(member)
     if not team:
         raise ValueError('战斗队伍为空')
+    if len(team) == 3:
+        hero_ids = [_resolve_battle_hero_id(member['hero_base_info']['id'], member['hero_type'])
+                    for member in team]
+        _apply_dynamic_main_damage_type(team, hero_ids)
     now = int(time.time())
     battle_id = max(next(_BATTLE_IDS), user.get('last_battle_id', 0)+1)
     user['last_battle_id'] = battle_id
@@ -332,12 +408,16 @@ def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
     progress = user.setdefault('battle_progress', {}).setdefault(key, {'clear_times': 0, 'stars': []})
     times = max(1, min(common.get('battle_times') or 1, battle.get('max_times', 5)))
     if win:
-        cost = battle_cost(battle['config'])
+        cost = battle_cost_for(user, common['type'], progress_dest, battle['config'])
+        exp = battle_exp_reward(battle['config'], cost, times)
         cost['num'] *= times
         if cost['num']:
             spend_items(user, [cost])
-            if cost['id'] == 4:
-                update_task_progress(user, 350, cost['num'], 4)
+            if cost['id'] == STAMINA_CURRENCY_ID:
+                update_task_progress(user, 350, cost['num'], STAMINA_CURRENCY_ID)
+        if exp:
+            from .account_defaults import add_player_exp
+            add_player_exp(user, exp)
         update_task_progress(user, 402, times)
         if common['type'] == 11:
             update_task_progress(user, 453, times)

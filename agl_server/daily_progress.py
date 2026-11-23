@@ -7,6 +7,7 @@ from .battle_rewards import grant_rewards, spend_items
 from .gameplay_protocol import read_client_data
 from .currency_data import build_currency_balances
 from .server_clock import business_day, refresh_hour
+from .task_progress import update_task_progress
 
 DAILY_COMMANDS = {15012, 15016, 15020, 12046, 59002, 59004, 59012, 59014}
 
@@ -156,4 +157,8 @@ def daily_request(user: dict, command: int, request: dict) -> dict:
             rewards = [{'id': row[1][0], 'num': row[1][1]}]
             claimed.append(index)
     grant_rewards(user, rewards)
+    if command == 15016:
+        update_task_progress(user, 3)
+    elif command == 12046:
+        update_task_progress(user, 10)
     return {'result': 0, **({'reward_list': rewards} if command != 12046 else {})}

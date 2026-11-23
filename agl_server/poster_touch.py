@@ -20,6 +20,7 @@ import json
 
 from .gameplay_protocol import read_client_data
 from .skin_scene_data import skin_available
+from .task_progress import update_task_progress
 
 # 上报事件名，只有该事件与誓约任务的触摸次数相关。
 POSTER_TOUCH_EVENT = 'poster_touch'
@@ -60,6 +61,8 @@ def save_poster_touch(user: dict, request: dict) -> None:
     for hero_id, times in planned:
         key = str(hero_id)
         saved[key] = int(saved.get(key, 0)) + times
+    # 大厅交互同时是每日「与修正者交互」任务的事实来源，按本次上报计一次。
+    update_task_progress(user, 8)
 
 
 def poster_touch_count(user: dict, hero_id: int) -> int:

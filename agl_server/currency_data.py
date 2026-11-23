@@ -318,6 +318,7 @@ RETIRED_CURRENCY_IDS = tuple(i for i, (kind, _) in CURRENCY_DEFINITIONS.items() 
 
 DEFAULT_CURRENCY_AMOUNT = 99999
 DRAW_CURRENCY_ID = 36  # ItemCfg[36] 共鸣辉芒；9 是委任情报点。
+STAMINA_CURRENCY_ID = 4  # ItemCfg[4] 体力（疲劳值）。
 CORE_CURRENCY_FIELDS = {1: 'diamond', 2: 'gold', 4: 'stamina', 36: 'draw_tickets',
                         31: 'flower', 30: 'flower_ios', 32: 'flower_free'}
 
