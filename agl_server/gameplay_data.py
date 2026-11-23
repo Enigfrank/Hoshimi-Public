@@ -66,8 +66,21 @@ def passport_data(user: dict) -> dict:
             "receive_info": passport_rewards(user)}
 
 
+def story_phase(user: dict) -> int:
+    """按章节汇总任务的领取状态决定当前剧情阶段，全部领完时停在最后阶段。"""
+    catalog = client_catalog()['tasks']
+    saved = user.get('tasks', {})
+    phases = sorted({cfg['phase'] for cfg in catalog if cfg['type'] == 3})
+    for phase in phases:
+        box = next((cfg for cfg in catalog if cfg['type'] == 3 and cfg['phase'] == phase
+                    and cfg['condition'] == 500), None)
+        if box and not saved.get(str(box['id']), {}).get('complete_flag'):
+            return phase
+    return phases[-1] if phases else 1
+
+
 def task_data(user: dict) -> dict:
-    """下发有效任务及真实存档进度，剧情任务从第一阶段开始。"""
+    """下发有效任务及真实存档进度，剧情任务只给当前章节并随领取推进。"""
     if 'resident_rogue' in user:
         from .resident_tasks import update_rogue_tasks
         update_rogue_tasks(user)
@@ -86,17 +99,18 @@ def task_data(user: dict) -> dict:
         from .mult_heart_demon import update_demon_tasks
         update_demon_tasks(user)
     saved = user.get("tasks", {})
+    phase = story_phase(user)
     tasks = []
     activities = {cfg['activity_id'] for cfg in build_available_activities() if cfg['state'] == 1}
     for cfg in client_catalog()["tasks"]:
         if cfg["activity_id"] and cfg["activity_id"] not in activities:
             continue
-        if cfg["type"] == 3 and cfg["phase"] != 1:
+        if cfg["type"] == 3 and cfg["phase"] != phase:
             continue
         entry = saved.get(str(cfg["id"]), {})
         tasks.append({"id": cfg["id"], "progress": entry.get("progress", 0),
                       "complete_flag": entry.get("complete_flag", 0)})
-    return {"send_type": 0, "newbie_phase": 1, "assignment_phase": 1, "assignment_list": tasks}
+    return {"send_type": 0, "newbie_phase": 1, "assignment_phase": phase, "assignment_list": tasks}
 
 
 def task_points(user: dict) -> dict:

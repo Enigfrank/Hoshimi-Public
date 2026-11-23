@@ -8,6 +8,7 @@ from .battle_rewards import grant_rewards, inventory_pushes, spend_items
 from .currency_data import build_currency_balances
 from .gameplay_protocol import read_client_data
 from .server_clock import business_day
+from .task_progress import update_task_progress
 
 EXPLORE_COMMANDS = {67002, 67004, 67006, 67008, 67010, 67012}
 
@@ -120,6 +121,8 @@ def explore_request(user: dict, command: int, request: dict) -> tuple[dict, list
         now = int(time.time())
         queue.append({'area_id': area['id'], 'mimir_id': cat, 'start_time': now,
                       'stop_time': now + hours * 3600, 'target_explore_hour': hours, 'explore_event': []})
+        # 「派遣管理喵探索」只按成功进入派遣队列计数，领取奖励不重复推进。
+        update_task_progress(user, 9)
     elif command == 67006:
         queue = state['explore_queue']
         dispatched = next((row for row in queue if row['area_id'] == request['area_id']), None)

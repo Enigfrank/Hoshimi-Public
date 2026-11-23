@@ -7,6 +7,7 @@ from .battle_rewards import grant_rewards, spend_items
 from .gameplay_protocol import read_client_data
 from .currency_data import build_currency_balances
 from .server_clock import business_day, refresh_hour
+from .task_progress import update_task_progress
 
 DAILY_COMMANDS = {15012, 15016, 15020, 12046, 59002, 59004, 59012, 59014}
 
@@ -94,6 +95,9 @@ def daily_request(user: dict, command: int, request: dict) -> dict:
         spend_items(user, [{'id': 1, 'num': row[f'cost_diamond_to_{suffix}']}])
         rewards = [{'id': 2 if coin else 4, 'num': amount}]
         state[field] += 1
+        if not coin:
+            # 「使用移转之辉补充吨吨值」对应扣移转之辉换吨吨值的兑换，按成功次数推进。
+            update_task_progress(user, 3)
     elif command == 15020:
         num = request['num']
         if num <= 0:
@@ -124,6 +128,8 @@ def daily_request(user: dict, command: int, request: dict) -> dict:
             raise ValueError('体力超过可持有上限')
         rewards = [{'id': row[1], 'num': row[2]}]
         state['fatigue_claimed'].append(hour)
+        # 「吨吨补给站」按时段领取吨吨值，领取成功才推进每日任务。
+        update_task_progress(user, 10)
     else:
         saved = user.setdefault('newbie', {})
         saved.setdefault('trigger_time', user.get('created_at', now))
