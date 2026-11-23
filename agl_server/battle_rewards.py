@@ -202,4 +202,7 @@ def spend_items(user: dict, costs: list[dict]) -> None:
             user['materials'][str(item)] -= amount
         if item in TRACKED_SPEND_ITEMS:
             from .assignment_facts import bump, SPEND
+            from .task_progress import advance_periodic_progress
             bump(user, SPEND, item, amount)
+            # 每日/每周的“累计消耗”任务按本次事件累加，读不到跨天计数器。
+            advance_periodic_progress(user, SPEND, amount, item)

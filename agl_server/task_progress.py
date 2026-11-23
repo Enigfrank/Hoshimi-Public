@@ -28,6 +28,25 @@ def refresh_task_periods(user: dict, now: int | None = None) -> None:
         saved[key] = current
 
 
+def advance_periodic_progress(user: dict, condition: int, amount: int, parameter: int = 0) -> None:
+    """按本次事件推进每日/每周任务的累加进度。
+
+    每日、每周任务在周期切换时会删除任务条目，不能像长期任务那样读跨天累计的
+    计数器重算，只能按每次真实事件累加；消耗类事件在 ``battle_rewards.spend_items``
+    写计数器后调用本函数，避免每日任务进度停在旧值。
+    """
+    from .gameplay_data import client_catalog
+    for cfg in client_catalog()['tasks']:
+        if cfg['type'] not in (5, 6) or int(cfg['condition']) != int(condition):
+            continue
+        params = cfg.get('additional_parameter') or []
+        if params and params[0] not in (0, parameter):
+            continue
+        entry = user.setdefault('tasks', {}).setdefault(str(cfg['id']), {'progress': 0, 'complete_flag': 0})
+        if not entry.get('complete_flag'):
+            entry['progress'] = min(int(cfg['need']), int(entry.get('progress', 0)) + int(amount))
+
+
 def update_task_progress(user: dict, condition: int, amount: int = 1, parameter: int = 0) -> None:
     """由已验证的登录、通关、消耗和交互事件更新当前可见任务。
 
