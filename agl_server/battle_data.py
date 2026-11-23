@@ -1,6 +1,5 @@
 """单人战斗队伍、会话和结算数据。"""
 
-import random
 import time
 from copy import deepcopy
 from functools import lru_cache
@@ -19,49 +18,6 @@ from .loadout_storage import servant_data
 from .resident_battle import RESIDENT_STAGE_CONFIGS, complete_resident_battle
 
 _BATTLE_IDS = count(int(time.time()))
-
-_DYNAMIC_ATTRIBUTE_HERO = 1085
-_NORMAL_ATTACK_ATTRIBUTES = frozenset((0, 2, 4, 6, 8, 10, 12, 14))
-
-
-@lru_cache(maxsize=256)
-def _hero_attack_attribute(hero_id: int) -> int:
-    """读取角色基础攻击属性，动态属性由战斗队伍另行解析。"""
-    if hero_id <= 0:
-        return -1
-    value = read_client_data(
-        f"(function() local h=require('HeroCfg')[{int(hero_id)}]; local a=h and h.ATK_attribute; "
-        "return type(a)=='table' and tonumber(a[1]) or -1 end)()"
-    )
-    return int(value)
-
-
-def _resolve_battle_hero_id(selected_id: int, hero_type: int) -> int:
-    """把试用模板编号解析为 HeroCfg 中的实际角色编号。"""
-    if hero_type != 2:
-        return int(selected_id)
-    value = read_client_data(
-        f"((require('HeroStandardSystemCfg')[{int(selected_id)}] or {{}}).hero_id or 0)"
-    )
-    return int(value)
-
-
-def _apply_dynamic_main_damage_type(team: list[dict], hero_ids: list[int]) -> None:
-    """按两名队友的属性等概率选择诗寇蒂的主伤害属性。"""
-    if len(hero_ids) != 3 or hero_ids.count(_DYNAMIC_ATTRIBUTE_HERO) != 1:
-        return
-    teammate_attributes = [
-        _hero_attack_attribute(hero_id)
-        for hero_id in hero_ids
-        if hero_id != _DYNAMIC_ATTRIBUTE_HERO
-    ]
-    if len(teammate_attributes) != 2 or any(
-            attribute not in _NORMAL_ATTACK_ATTRIBUTES for attribute in teammate_attributes):
-        return
-    dynamic_attribute = random.choice(teammate_attributes)
-    for member, hero_id in zip(team, hero_ids):
-        if hero_id == _DYNAMIC_ATTRIBUTE_HERO:
-            member['main_damage_type'] = dynamic_attribute
 
 
 STAGE_CONFIGS = {
@@ -102,7 +58,7 @@ def chapter_stage_cleared(user: dict, stage_id: int) -> bool:
 def battle_cost_for(user: dict, stage_type: int, stage_id: int, config: dict) -> dict:
     """按玩法计算本次消耗；主线剧情关卡首通前消耗配置体力，通关后为 0。"""
     cost = battle_cost(config)
-    if stage_type == 1 and (user.get('account_template') != 'normal' or chapter_stage_cleared(user, stage_id)):
+    if stage_type == 1 and chapter_stage_cleared(user, stage_id):
         return {'id': cost['id'], 'num': 0}
     return cost
 
@@ -114,7 +70,7 @@ def battle_exp_reward(config: dict, cost: dict, times: int) -> int:
     configured = int(config.get('user_exp') or 0)
     if configured > 0:
         return configured * times
-    return cost['num'] * times if cost['id'] == STAMINA_CURRENCY_ID else 0
+    return cost['num'] if cost['id'] == STAMINA_CURRENCY_ID else 0
 
 
 @lru_cache(maxsize=512)
@@ -267,10 +223,6 @@ def start_battle(user: dict, request: dict, max_times: int = 5) -> tuple[dict, d
         team.append(member)
     if not team:
         raise ValueError('战斗队伍为空')
-    if len(team) == 3:
-        hero_ids = [_resolve_battle_hero_id(member['hero_base_info']['id'], member['hero_type'])
-                    for member in team]
-        _apply_dynamic_main_damage_type(team, hero_ids)
     now = int(time.time())
     battle_id = max(next(_BATTLE_IDS), user.get('last_battle_id', 0)+1)
     user['last_battle_id'] = battle_id
@@ -412,17 +364,15 @@ def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
         exp = battle_exp_reward(battle['config'], cost, times)
         cost['num'] *= times
         if cost['num']:
+            # 吨吨值的累计消耗由 spend_items 统一写入任务计数器，这里不再重复累加。
             spend_items(user, [cost])
-            if cost['id'] == STAMINA_CURRENCY_ID:
-                update_task_progress(user, 350, cost['num'], STAMINA_CURRENCY_ID)
         if exp:
             from .account_defaults import add_player_exp
             add_player_exp(user, exp)
         update_task_progress(user, 402, times)
         if common['type'] == 11:
             update_task_progress(user, 453, times)
-        elif common['type'] in (10, 100):
-            update_task_progress(user, 405, times, 301)
+        # 梦境再构的关卡次数已写入 battle_progress，由 assignment_facts 按章节统一统计。
         progress['clear_times'] += times
         progress['stars'] = sorted(set(progress['stars']) | {s['star_id'] for s in stars if s['is_achieve']})
         progress['best_time'] = min(progress.get('best_time', seconds), seconds)
