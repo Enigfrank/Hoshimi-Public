@@ -423,6 +423,13 @@ def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
             update_task_progress(user, 453, times)
         elif common['type'] in (10, 100):
             update_task_progress(user, 405, times, 301)
+            if common['type'] == 100:
+                # 官服公式：难度基础分 + 已选词缀分 + 关卡条件分。
+                # 30001 在难度 7 选四个 4000 分词缀即 14000 + 16000 = 30000。
+                from .challenge_data import boss_advance, boss_challenge_score
+                score = boss_challenge_score(user, int(common['index']), boss_advance(user))
+                progress['max_point'] = max(int(progress.get('max_point') or 0), score)
+                battle['boss_score'] = score
         progress['clear_times'] += times
         progress['stars'] = sorted(set(progress['stars']) | {s['star_id'] for s in stars if s['is_achieve']})
         progress['best_time'] = min(progress.get('best_time', seconds), seconds)

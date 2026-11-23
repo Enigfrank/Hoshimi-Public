@@ -1303,7 +1303,14 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
             user = session.user_data if session else {}
             request = decode_message(cmd, pb_payload)
             if cmd == 45202:
-                user['boss_mode'] = request['select']
+                select = request['select']
+                if select in (101, 102):
+                    user['boss_advance_id'] = select
+                    user['boss_mode'] = 1 if select == 101 else 2
+                else:
+                    user['boss_mode'] = select
+                    if select in (1, 2):
+                        user['boss_advance_id'] = 100 + select
                 pushes = boss_data(user)
             else:
                 if cmd == 44016:
