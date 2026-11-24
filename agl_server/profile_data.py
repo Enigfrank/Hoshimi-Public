@@ -44,6 +44,8 @@ def switch_poster_girl(user: dict, hero_id: int, previous: int | None = None) ->
             row['end_time'] = now
     user.setdefault('poster_girl_terms', []).append(
         {'hero_id': hero_id, 'start_time': now, 'end_time': 0})
+    from .task_progress import update_task_progress
+    update_task_progress(user, 118)
 
 
 def profile_data(user: dict) -> dict:
@@ -83,7 +85,7 @@ def profile_data(user: dict) -> dict:
 def profile_request(user: dict, command: int, request: dict, rewards: list | None = None) -> dict:
     """处理个人资料与角色语音校验协议；保存结构与登录初始化结构保持一致。
 
-    ``32044`` 只校验角色是否可播放语音，不修改存档。
+    ``32044`` 校验角色可播放语音并记录新手课程进度。
     ``rewards`` 为可选出参：``sc_12003`` 只有 ``result``，心链剧情首读发放的物品
     无法通过协议字段下发，调用方据此补发库存推送。
     """
@@ -95,6 +97,8 @@ def profile_request(user: dict, command: int, request: dict, rewards: list | Non
         if not any(int(hero.get('id', 0)) == role_id and hero.get('unlock', 1)
                    for hero in user.get('heroes', [])):
             raise ValueError('角色未拥有，无法播放语音')
+        from .task_progress import update_task_progress
+        update_task_progress(user, 115)
         return response
     profile = profile_data(user)
     if command in (32122, 32130):

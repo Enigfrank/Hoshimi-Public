@@ -40,9 +40,10 @@ from .supply_data import build_supply_goods
 from .gameplay_data import build_gameplay_pushes, passport_data, equip_battle_data, battle_progress_pushes
 from .gameplay_protocol import encode_message, decode_message, message_has_field
 from .battle_data import start_battle, settle_battle, start_story
-from .challenge_data import (boss_data, enchantment_data, challenge_pushes,
-                            refresh_enchantment, seizure_data,
-                            claim_equip_seizure_rewards)
+from .achievement_story import login_story_line, read_achievement_story
+from .challenge_data import (boss_data, core_data, core_cycle_info, claim_core_rewards,
+                            enchantment_data, challenge_pushes, refresh_enchantment,
+                            seizure_data, claim_equip_seizure_rewards)
 from .battle_udp import BattleUDP
 from .reserve_data import save_reserve, save_battle_team
 from .profile_data import profile_data, profile_request, PROFILE_COMMANDS
@@ -565,6 +566,7 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 (32051, encode_message(32051, {'list': [
                     {'skin_id': i, 'gift_acquire': True} for i in user.get('skin_gifts', [])]}), 0, 0.0),
                 (12001, encode_message(12001, {'story_list': user.get('read_stories', [])}), 0, 0.0),
+                (53001, encode_message(53001, {'story_line': login_story_line(user)}), 0, 0.0),
                 (12033, encode_message(12033, user.get('birthday', {'month': 0, 'day': 0})), 0, 0.0),
                 (10600, bridge.encode_sc_10600(), 0, 0.0),
                 (24009, encode_message(24009, story_progress(user)), 0, 0.0),
@@ -836,9 +838,14 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 else:
                     values, pushes = backhome_request(user, cmd, request)
                 if cmd in BACKHOME_ONEWAY_COMMANDS or cmd == 32132:
+                    tasks_changed = cmd == 32132 and user.get('tasks') != session.user_data.get('tasks')
+                    if tasks_changed:
+                        task_frame = pack_ystcp(28001, encode_message(28001, task_data(user)))
                     if user != session.user_data:
                         get_user_manager().save_user(user)
                     session.user_data = user
+                    if tasks_changed:
+                        session.writer.write(task_frame)
                     return None
                 resp_pb = encode_message(resp_cmd, values)
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in pushes]
@@ -1057,6 +1064,8 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 pushes = inventory_pushes(user)
                 if cmd in EQUIP_COMMANDS:
                     pushes = equip_pushes(session.user_data, user) + pushes
+                    if cmd == 13028 and user.get('tasks') != session.user_data.get('tasks'):
+                        pushes.append((28001, task_data(user)))
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in pushes]
                 if cmd in SERVANT_COMMANDS:
                     resp_extra.extend((c, encode_message(c, v), 0, 0.0)
@@ -1199,7 +1208,9 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                         session.user_data = user
                     return None
                 resp_pb = encode_message(resp_cmd, values)
-                if granted or cmd in (32052, 32058):
+                if cmd == 32044 or (cmd == 32016 and user.get('tasks') != session.user_data.get('tasks')):
+                    resp_extra = [(28001, encode_message(28001, task_data(user)), 0, 0.0)]
+                elif granted or cmd in (32052, 32058):
                     resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in inventory_pushes(user)]
                 if user != session.user_data:
                     get_user_manager().save_user(user)
@@ -1232,6 +1243,40 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 user_mgr.save_user(user)
             resp_cmd = 14035
             resp_pb = bridge.encode_sc_14035(result=0 if valid else 1)
+        elif cmd == 53006:
+            from copy import deepcopy
+            resp_cmd = 53007
+            try:
+                if not session or not session.user_data:
+                    raise ValueError('未登录')
+                user = deepcopy(session.user_data)
+                request = decode_message(cmd, pb_payload)
+                read_achievement_story(user, request['id'])
+                resp_pb = encode_message(resp_cmd, {'result': 0})
+                get_user_manager().save_user(user)
+                session.user_data = user
+            except ValueError as error:
+                print(f'[成就物语拒绝] {error}')
+                resp_pb = encode_message(resp_cmd, {'result': 1})
+        elif cmd == 75006:
+            from copy import deepcopy
+            resp_cmd = 75007
+            try:
+                if not session or not session.user_data:
+                    raise ValueError('未登录')
+                user = deepcopy(session.user_data)
+                request = decode_message(cmd, pb_payload)
+                rows, cycle, next_cycle, end = core_cycle_info()
+                rewards = claim_core_rewards(user, request['reward_list'], rows, cycle)
+                resp_pb = encode_message(resp_cmd, {'result': 0, 'reward_list': rewards})
+                pushes = inventory_pushes(user) + [(75009, core_data(user, (rows, cycle, next_cycle, end)))]
+                resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in pushes]
+                get_user_manager().save_user(user)
+                session.user_data = user
+            except ValueError as error:
+                print(f'[迭代校验领奖拒绝] {error}')
+                resp_extra = None
+                resp_pb = encode_message(resp_cmd, {'result': 1})
         elif cmd == 10200:  # cs_10200 -> sc_10201
             resp_cmd = 10201
             resp_pb = bridge.encode_sc_10201()

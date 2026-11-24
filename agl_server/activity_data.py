@@ -6,8 +6,7 @@ import time
 RESOURCE_ACTIVITY_THEME = 44
 
 # 保留活动记录，结束旧换装图标及未采用的古远期次，避免重复同名入口。
-HIDDEN_ACTIVITY_ENTRIES = {3700413, 4435002, 4435003, 4435004, 4435005,
-                         4443301, 4443302, 4443303, 4443401, 4443402, 4443403, 4443501, 4443502, 4443503}
+HIDDEN_ACTIVITY_ENTRIES = {3700413, 4435002, 4435003, 4435004, 4435005}
 
 # activity_id: (theme, template, sub_activity_ids)
 RESOURCE_ACTIVITIES = {
@@ -114,10 +113,17 @@ def build_available_activities() -> list[dict]:
     from .skin_draw_catalog import skin_activities
     for cfg in skin_activities():
         result[cfg['activity_id']] = cfg
-    from .activity_periods import PERIOD_ACTIVITIES, period_settings, period_window
+    from .activity_periods import (NEURAL_ALL_IDS, PERIOD_ACTIVITIES,
+                                   neural_period, period_settings, period_window)
     settings = period_settings()
     for key, ids in PERIOD_ACTIVITIES.items():
         start, end = period_window(key, settings, now)
         for aid in ids:
             result[aid].update(start_time=start, stop_time=end)
+    current, _ = neural_period(settings, now)
+    visible = {current, current + 100, current + 200}
+    for aid in NEURAL_ALL_IDS:
+        if aid in result and aid not in visible:
+            result[aid] = {**result[aid], 'state': 0,
+                           'start_time': now - 30 * 86400, 'stop_time': now - 86400}
     return list(result.values())

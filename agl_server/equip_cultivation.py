@@ -273,4 +273,6 @@ def equip_request(user: dict, command: int, request: dict) -> dict:
             preview = {'effect_list': effects}
             previews.append(preview)
             response['enchant_preview'] = deepcopy(preview)
+            from .task_progress import update_task_progress
+            update_task_progress(user, 204)
     return response
