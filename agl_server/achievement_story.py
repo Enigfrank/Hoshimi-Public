@@ -1,4 +1,4 @@
-"""成就物语阅读状态：cs_53006 校验点数并记录已读。"""
+"""成就物语的解锁条件与已读状态。"""
 
 from functools import lru_cache
 
@@ -7,50 +7,30 @@ from .gameplay_protocol import read_client_data
 
 
 @lru_cache(maxsize=1)
-def story_catalog() -> dict[int, dict]:
-    """读取客户端成就物语配置，故事 ID、名称和解锁点数以安装包为准。"""
-    rows = read_client_data('''(function()
+def story_catalog() -> dict[int, int]:
+    """从客户端配置读取故事 ID 与解锁所需的成就点数。"""
+    rows = read_client_data("""(function()
         local cfg=require('AchievementStoryCfg')
         local result={}
-        for _,id in ipairs(cfg.all) do
-            local row=cfg[id]
-            result[#result+1]={id=row.id,name=row.name,unlock_point=row.unlock_point}
-        end
+        for _,id in ipairs(cfg.all) do result[tostring(id)]=cfg[id].unlock_point end
         return result
-    end)()''')
-    return {int(row['id']): {'id': int(row['id']), 'name': row.get('name') or '',
-                             'unlock_point': int(row.get('unlock_point') or 0)}
-            for row in rows}
+    end)()""")
+    return {int(story_id): points for story_id, points in rows.items()}
 
 
 def login_story_line(user: dict) -> list[int]:
-    """把存档里的已读故事 ID 规整成 sc_53001.story_line（repeated uint32）。"""
+    """读取存档中的有效故事编号，去除重复值。"""
     raw = user.get('achievement_story_read')
     if not isinstance(raw, list):
         return []
-    ids: set[int] = set()
-    for value in raw:
-        try:
-            ids.add(int(value))
-        except (TypeError, ValueError):
-            continue
-    return sorted(ids)
+    return sorted({value for value in raw if type(value) is int and 0 < value < 1 << 32})
 
 
-def read_achievement_story(user: dict, story_id: int) -> dict:
-    """校验成就点数并写入已读列表；不满足时返回失败，不修改存档。"""
-    story_id = int(story_id)
-    story = story_catalog().get(story_id)
-    if not story:
-        raise ValueError(f'无效的成就物语 ID：{story_id}')
-    points = build_currency_balances(user).get(33, 0)
-    if points < story['unlock_point']:
-        raise ValueError(f'成就点数未达标：当前 {points}，需要 {story["unlock_point"]}')
-    read_list = user.get('achievement_story_read')
-    if not isinstance(read_list, list):
-        read_list = []
-        user['achievement_story_read'] = read_list
-    if story_id not in read_list:
-        read_list.append(story_id)
-        read_list.sort()
-    return {'result': 0}
+def read_achievement_story(user: dict, story_id: int) -> None:
+    """验证故事和成就点数，记录已读且不扣除点数。"""
+    points = story_catalog().get(story_id)
+    if points is None:
+        raise ValueError('无效的成就物语 ID')
+    if build_currency_balances(user).get(33, 0) < points:
+        raise ValueError('成就点数未达标')
+    user['achievement_story_read'] = sorted(set(login_story_line(user)) | {story_id})
