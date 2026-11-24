@@ -4,11 +4,13 @@ from copy import deepcopy
 
 from .battle_progress import progress
 from .battle_rewards import drop_config, roll_drops, grant_rewards
-from .challenge_data import (boss_area, boss_group_ids, boss_option_ids, challenge_catalog,
+from .challenge_data import (boss_advance, boss_advance_pool, boss_area, boss_group_ids,
+                            boss_option_ids, challenge_catalog,
                             rogue_score_reward_ids, rogue_selection_catalog)
 
 CHALLENGE_COMMANDS = {44012, 44024, 44026, 44028, 44030, 45004, 45006, 45104,
-                      45108, 45110, 45204, 55002, 55004, 55006, 55012, 55020, 88100, 88316}
+                      45106, 45108, 45110, 45112, 45204, 55002, 55004, 55006,
+                      55012, 55020, 88100, 88316}
 
 
 def challenge_request(user: dict, command: int, request: dict) -> dict:
@@ -91,6 +93,32 @@ def challenge_request(user: dict, command: int, request: dict) -> dict:
                 raise ValueError('梦境星数不足或已经领奖')
             rewards = roll_drops(drop_config(drop), 1)
             claimed.append(star)
+    elif command == 45106:
+        # 单 boss 重置：清掉本次编队/词缀与战斗记录，但保留历史最高积分。
+        boss_id = request.get('boss_id', request.get('id'))
+        advance = boss_advance(user)
+        target = next((x for x in boss_advance_pool(user, advance) if x['id'] == boss_id), None)
+        if target is None:
+            raise ValueError('梦境 boss 不存在')
+        row = progress(user, 100, target['stage_id'])
+        max_point = int(row.get('max_point') or 0)
+        row.clear()
+        if max_point:
+            row['max_point'] = max_point
+        user.get('boss_affixes', {}).pop(str(boss_id), None)
+        user.get('boss_teams', {}).pop(str(boss_id), None)
+    elif command == 45112:
+        # 梦境“一键领取”：按当前模式所有 boss 最高积分之和，领取未领取过的档位。
+        advance = boss_advance(user)
+        total = sum(int(progress(user, 100, x['stage_id']).get('max_point') or 0)
+                    for x in boss_advance_pool(user, advance))
+        received = user.get('boss_receive_points') or []
+        user['boss_receive_points'] = received
+        for threshold, drop_id in advance.get('reward') or []:
+            if total >= threshold and threshold not in received:
+                rewards.extend(roll_drops(drop_config(drop_id), 1))
+                received.append(threshold)
+        response['item_list'] = rewards
     elif command in (45104, 45108, 45110):
         group = request.get('id', request.get('group_id'))
         if command == 45110:

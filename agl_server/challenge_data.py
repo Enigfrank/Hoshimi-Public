@@ -170,7 +170,7 @@ def boss_area(user: dict, area_id=None) -> dict:
                 return area
             if area_id is not None:
                 raise ValueError('梦境周期无效')
-    if user.get('account_template') == 'normal':
+    if user.get('account_template') == 'normal' and not user.get('official_unlock'):
         level = user.get('level', 1)
         return next((row for row in catalog if row['level'][0] <= level <= row['level'][1]), catalog[0])
     return next(row for row in catalog if row['range_id'] == 4)
@@ -216,6 +216,53 @@ def boss_activity_options(user: dict) -> dict:
     return {'area_id': current['range_id'], 'boss_group_id': selected, 'areas': areas}
 
 
+def boss_advance(user: dict) -> dict:
+    """取当前扭曲梦境难度；45202 选 102 即扭曲梦境Ⅱ，旧档的 2 也按Ⅱ处理。"""
+    c = challenge_catalog()
+    raw = user.get('boss_advance_id', user.get('boss_mode', 0))
+    try:
+        selected = int(raw or 0)
+    except (TypeError, ValueError):
+        selected = 0
+    if selected not in (101, 102):
+        selected = 102 if selected == 2 else 101
+    return next(x for x in c['advance'] if x['id'] == selected)
+
+
+def boss_advance_pool(user: dict, advance: dict) -> list[dict]:
+    """扭曲梦境Ⅰ用 20001 段，Ⅱ用 30001 段；与官服 45101.boss_list 的 ID 对齐。"""
+    start = 20001 if advance['id'] == 101 else 30001
+    pool = [x for x in challenge_catalog()['advance_pool'] if start <= x['id'] < start + 100]
+    return pool[:advance['boss_nums']]
+
+
+@lru_cache(maxsize=1)
+def boss_point_configs() -> dict:
+    """词缀和关卡条件各自的分值；官服 30001 四词缀 4000 分/个 + 难度 7 基础 14000 = 30000。"""
+    return read_client_data('''(function()
+        local a=require('ActivityAffixPoolCfg')
+        local c=require('StageChallengeConditionPoolCfg')
+        local r={affix={},condition={}}
+        for k,v in pairs(a) do r.affix[tostring(k)]=tonumber(v.point) or 0 end
+        for _,v in ipairs(c) do r.condition[tostring(v.id)]=tonumber(v.point) or 0 end
+        return r
+    end)()''')
+
+
+def boss_challenge_score(user: dict, boss_id: int, advance: dict) -> int:
+    """按客户端 GetTotalPoint 同口径计算：难度基础分 + 已选词缀分 + 关卡条件分。"""
+    affix = (user.get('boss_affixes') or {}).get(str(boss_id), {})
+    difficulty = int(affix.get('diffculty_index') or 1)
+    points = advance.get('difficult_point') or []
+    base = int(points[difficulty - 1]) if 1 <= difficulty <= len(points) else 0
+    config = boss_point_configs()
+    affix_points = sum(config['affix'].get(str(x), 0)
+                       for x in affix.get('affix_index_list') or [])
+    condition_points = sum(config['condition'].get(str(x), 0)
+                           for x in affix.get('time_index_list') or [])
+    return base + affix_points + condition_points
+
+
 def boss_option_ids(values: list[int], choices: list[int], types: dict, *, legacy=False) -> list[int]:
     """校验选项 ID 和互斥类型，并转换旧存档保存的数组下标。"""
     selected = {}
@@ -237,8 +284,9 @@ def boss_data(user: dict) -> list[tuple]:
     """初始化梦境普通与扭曲模式，所选层级保存在账号中。"""
     c = challenge_catalog()
     area = boss_area(user)
+    advance = boss_advance(user)
+    pool = boss_advance_pool(user, advance)
     active_groups = boss_group_ids(user, area)[:area['boss_nums']]
-    advance = next(x for x in c['advance'] if x['type'] == 2)
     groups = []
     for group_id in active_groups:
         stages = c['boss_groups'][str(group_id)]
@@ -250,24 +298,31 @@ def boss_data(user: dict) -> list[tuple]:
                        'star_info': [{'stage_id': s, 'star_list': progress(user,10,s).get('stars', [])}
                                      for s in completed]})
     bosses = []
-    for pool in c['advance_pool'][:advance['boss_nums']]:
-        saved = user.get('boss_affixes', {}).get(str(pool['id']), {})
+    for boss in pool:
+        completed = progress(user, 100, boss['stage_id'])
+        saved = user.get('boss_affixes', {}).get(str(boss['id']), {})
         legacy = not saved.get('uses_option_ids')
         bosses.append({
-            'id': pool['id'], 'unlock_timestamp': 0, 'max_point': 0,
+            'id': boss['id'], 'unlock_timestamp': 0,
+            'max_point': completed.get('max_point', 0),
             'diffculty_index': saved.get('diffculty_index', 1),
+            'last_heroes_cfg': user.get('boss_teams', {}).get(str(boss['id']), []),
+            'used_heroes': sorted(completed.get('last_heroes', [])),
             'affix_index_list': boss_option_ids(saved.get('affix_index_list', []),
-                                               pool['affix_pool'], c['advance_option_types'], legacy=legacy),
+                                               boss['affix_pool'], c['advance_option_types'], legacy=legacy),
             'time_index_list': boss_option_ids(saved.get('time_index_list', []),
-                                              pool['time_pool'], c['advance_time_types'], legacy=legacy),
+                                              boss['time_pool'], c['advance_time_types'], legacy=legacy),
         })
     return [
-        (45201, {'mode': user.get('boss_mode', 0), 'next_refresh_time': period_window('dream')[1],
+        (45201, {'mode': 2 if advance['id'] == 102 else 1,
+                 'next_refresh_time': period_window('dream')[1],
                  'difficulty_list': [x['id'] for x in c['advance']
-                                     if user.get('account_template') != 'normal' or x['open_condition'] <= user['level']]}),
+                                     if user.get('account_template') != 'normal' or user.get('official_unlock')
+                                     or x['open_condition'] <= user['level']]}),
         (45001, {'area_id': area['range_id'], 'use_times': 0,
-                 'boss_challenge_list': groups, 'receive_star_list': user.get('boss_star_rewards', [])}),
-        (45101, {'advance_id': advance['id'], 'boss_list': bosses}),
+                 'boss_challenge_list': groups, 'receive_star_list': user.get('boss_star_rewards') or []}),
+        (45101, {'advance_id': advance['id'], 'boss_list': bosses,
+                 'receive_point_list': user.get('boss_receive_points') or []}),
     ]
 
 
