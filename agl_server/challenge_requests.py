@@ -4,7 +4,7 @@ from copy import deepcopy
 
 from .battle_progress import progress
 from .battle_rewards import drop_config, roll_drops, grant_rewards
-from .challenge_data import (boss_area, boss_group_ids, challenge_catalog,
+from .challenge_data import (boss_area, boss_group_ids, boss_option_ids, challenge_catalog,
                             rogue_score_reward_ids, rogue_selection_catalog)
 
 CHALLENGE_COMMANDS = {44012, 44024, 44026, 44028, 44030, 45004, 45006, 45104,
@@ -104,11 +104,14 @@ def challenge_request(user: dict, command: int, request: dict) -> dict:
             pool = next(c for c in catalog['advance_pool'] if c['id'] == group)
             if not 1 <= request['diffculty_index'] <= len(config['monster_value']):
                 raise ValueError('梦境难度无效')
-            for field, choices in (('affix_index_list', pool['affix_pool']), ('time_index_list', pool['time_pool'])):
-                if len(set(request[field])) != len(request[field]) or any(not 1 <= i <= len(choices) for i in request[field]):
-                    raise ValueError('梦境词缀选项无效')
-            user.setdefault('boss_affixes', {})[str(group)] = {k: deepcopy(request[k]) for k in
-                ('affix_index_list', 'time_index_list', 'diffculty_index')}
+            affixes = boss_option_ids(request.get('affix_index_list', []), pool['affix_pool'],
+                                     catalog['advance_option_types'])
+            times = boss_option_ids(request.get('time_index_list', []), pool['time_pool'],
+                                   catalog['advance_time_types'])
+            user.setdefault('boss_affixes', {})[str(group)] = {
+                'affix_index_list': affixes, 'time_index_list': times,
+                'diffculty_index': request['diffculty_index'], 'uses_option_ids': True,
+            }
         else:
             heroes = request['heroes_cfg']
             if len(heroes) > 3 or any(h and h not in {x['id'] for x in user['heroes']} for h in heroes):

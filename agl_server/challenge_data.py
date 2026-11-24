@@ -40,6 +40,18 @@ def challenge_catalog() -> dict:
         end end
         r.advance=rows('BossChallengeAdvanceCfg')
         r.advance_pool=rows('BossChallengeAdvancePoolCfg')
+        r.advance_option_types={}
+        for _,pool in ipairs(r.advance_pool) do
+            for _,id in ipairs(pool.affix_pool or {}) do
+                r.advance_option_types[tostring(id)]=require('ActivityAffixPoolCfg')[id].affix[1]
+            end
+        end
+        r.advance_time_types={}
+        for _,pool in ipairs(r.advance_pool) do
+            for _,id in ipairs(pool.time_pool or {}) do
+                r.advance_time_types[tostring(id)]=require('StageChallengeConditionPoolCfg')[id].condition[1]
+            end
+        end
         r.seizure=require('BattleEquipSeizureStageCfg').all
         r.enchant_groups={}
         local groups=require('StageGroupCfg')
@@ -204,6 +216,23 @@ def boss_activity_options(user: dict) -> dict:
     return {'area_id': current['range_id'], 'boss_group_id': selected, 'areas': areas}
 
 
+def boss_option_ids(values: list[int], choices: list[int], types: dict, *, legacy=False) -> list[int]:
+    """校验选项 ID 和互斥类型，并转换旧存档保存的数组下标。"""
+    selected = {}
+    for value in values:
+        if legacy and 1 <= value <= len(choices):
+            value = choices[value - 1]
+        if value not in choices:
+            if legacy:
+                continue
+            raise ValueError('梦境词缀选项无效')
+        kind = types[str(value)]
+        if not legacy and kind in selected:
+            raise ValueError('梦境词缀选项无效')
+        selected[kind] = value
+    return list(selected.values())
+
+
 def boss_data(user: dict) -> list[tuple]:
     """初始化梦境普通与扭曲模式，所选层级保存在账号中。"""
     c = challenge_catalog()
@@ -220,16 +249,25 @@ def boss_data(user: dict) -> list[tuple]:
                        'last_heroes_cfg': user.get('boss_teams', {}).get(str(group_id), []),
                        'star_info': [{'stage_id': s, 'star_list': progress(user,10,s).get('stars', [])}
                                      for s in completed]})
+    bosses = []
+    for pool in c['advance_pool'][:advance['boss_nums']]:
+        saved = user.get('boss_affixes', {}).get(str(pool['id']), {})
+        legacy = not saved.get('uses_option_ids')
+        bosses.append({
+            'id': pool['id'], 'unlock_timestamp': 0, 'max_point': 0,
+            'diffculty_index': saved.get('diffculty_index', 1),
+            'affix_index_list': boss_option_ids(saved.get('affix_index_list', []),
+                                               pool['affix_pool'], c['advance_option_types'], legacy=legacy),
+            'time_index_list': boss_option_ids(saved.get('time_index_list', []),
+                                              pool['time_pool'], c['advance_time_types'], legacy=legacy),
+        })
     return [
         (45201, {'mode': user.get('boss_mode', 0), 'next_refresh_time': period_window('dream')[1],
                  'difficulty_list': [x['id'] for x in c['advance']
                                      if user.get('account_template') != 'normal' or x['open_condition'] <= user['level']]}),
         (45001, {'area_id': area['range_id'], 'use_times': 0,
                  'boss_challenge_list': groups, 'receive_star_list': user.get('boss_star_rewards', [])}),
-        (45101, {'advance_id': advance['id'], 'boss_list': [
-            {'id': x['id'], 'unlock_timestamp': 0, 'max_point': 0, 'diffculty_index': 1,
-            **user.get('boss_affixes', {}).get(str(x['id']), {})}
-            for x in c['advance_pool'][:advance['boss_nums']]]}),
+        (45101, {'advance_id': advance['id'], 'boss_list': bosses}),
     ]
 
 
