@@ -30,13 +30,13 @@ def period_window(activity: str, settings=None, now=None) -> tuple[int, int]:
     return start, start + duration
 
 
-def neural_activity(settings=None, now=None) -> int:
+def neural_period(settings=None, now=None) -> tuple[int, int]:
     """按神经矩阵周期在四期并发序列中轮换，当前期由周期起点决定。"""
     settings = settings or period_settings()
     start, _ = period_window('neural', settings, now)
     cfg = settings['neural']
     index = ((start - cfg['anchor']) // (cfg['hours'] * 3600)) % len(NEURAL_ACTIVITY_IDS)
-    return NEURAL_ACTIVITY_IDS[index]
+    return NEURAL_ACTIVITY_IDS[index], start
 
 
 def period_options(manager=None) -> dict:

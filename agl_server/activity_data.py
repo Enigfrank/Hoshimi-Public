@@ -114,13 +114,13 @@ def build_available_activities() -> list[dict]:
     for cfg in skin_activities():
         result[cfg['activity_id']] = cfg
     from .activity_periods import (NEURAL_ALL_IDS, PERIOD_ACTIVITIES,
-                                   neural_activity, period_settings, period_window)
+                                   neural_period, period_settings, period_window)
     settings = period_settings()
     for key, ids in PERIOD_ACTIVITIES.items():
         start, end = period_window(key, settings, now)
         for aid in ids:
             result[aid].update(start_time=start, stop_time=end)
-    current = neural_activity(settings, now)
+    current, _ = neural_period(settings, now)
     visible = {current, current + 100, current + 200}
     for aid in NEURAL_ALL_IDS:
         if aid in result and aid not in visible:
