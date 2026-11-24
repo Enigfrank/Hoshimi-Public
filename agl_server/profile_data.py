@@ -44,6 +44,8 @@ def switch_poster_girl(user: dict, hero_id: int, previous: int | None = None) ->
             row['end_time'] = now
     user.setdefault('poster_girl_terms', []).append(
         {'hero_id': hero_id, 'start_time': now, 'end_time': 0})
+    from .task_progress import update_task_progress
+    update_task_progress(user, 118)
 
 
 def profile_data(user: dict) -> dict:

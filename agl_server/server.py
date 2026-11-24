@@ -838,9 +838,14 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 else:
                     values, pushes = backhome_request(user, cmd, request)
                 if cmd in BACKHOME_ONEWAY_COMMANDS or cmd == 32132:
+                    tasks_changed = cmd == 32132 and user.get('tasks') != session.user_data.get('tasks')
+                    if tasks_changed:
+                        task_frame = pack_ystcp(28001, encode_message(28001, task_data(user)))
                     if user != session.user_data:
                         get_user_manager().save_user(user)
                     session.user_data = user
+                    if tasks_changed:
+                        session.writer.write(task_frame)
                     return None
                 resp_pb = encode_message(resp_cmd, values)
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in pushes]
@@ -1059,6 +1064,8 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 pushes = inventory_pushes(user)
                 if cmd in EQUIP_COMMANDS:
                     pushes = equip_pushes(session.user_data, user) + pushes
+                    if cmd == 13028 and user.get('tasks') != session.user_data.get('tasks'):
+                        pushes.append((28001, task_data(user)))
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in pushes]
                 if cmd in SERVANT_COMMANDS:
                     resp_extra.extend((c, encode_message(c, v), 0, 0.0)
@@ -1201,7 +1208,7 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                         session.user_data = user
                     return None
                 resp_pb = encode_message(resp_cmd, values)
-                if cmd == 32044:
+                if cmd == 32044 or (cmd == 32016 and user.get('tasks') != session.user_data.get('tasks')):
                     resp_extra = [(28001, encode_message(28001, task_data(user)), 0, 0.0)]
                 elif granted or cmd in (32052, 32058):
                     resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in inventory_pushes(user)]
