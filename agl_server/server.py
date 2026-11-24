@@ -1201,7 +1201,9 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                         session.user_data = user
                     return None
                 resp_pb = encode_message(resp_cmd, values)
-                if granted or cmd in (32052, 32058):
+                if cmd == 32044:
+                    resp_extra = [(28001, encode_message(28001, task_data(user)), 0, 0.0)]
+                elif granted or cmd in (32052, 32058):
                     resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in inventory_pushes(user)]
                 if user != session.user_data:
                     get_user_manager().save_user(user)

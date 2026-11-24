@@ -424,8 +424,6 @@ def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
         cost['num'] *= times
         if cost['num']:
             spend_items(user, [cost])
-            if cost['id'] == STAMINA_CURRENCY_ID:
-                update_task_progress(user, 350, cost['num'], STAMINA_CURRENCY_ID)
         if exp:
             from .account_defaults import add_player_exp
             add_player_exp(user, exp)
