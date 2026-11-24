@@ -381,6 +381,9 @@ def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
     if common['type'] == 82:
         from .mult_heart_demon import settle_demon_battle
         settle_demon_battle(user, battle)
+    if common['type'] == 53:
+        from .challenge_data import settle_equip_seizure
+        settle_equip_seizure(user, battle, result, info)
     stars = []
     for index, condition in enumerate(battle['config'].get('three_star_need') or [], 1):
         kind = condition[0]

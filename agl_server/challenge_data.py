@@ -1,6 +1,7 @@
 """挑战玩法的本地排期与初始化；关卡取自安装包配置。"""
 
 from functools import lru_cache
+import datetime
 import random
 import time
 
@@ -95,6 +96,258 @@ def _roll_enchant_slot(current: list, index: int) -> None:
     candidates = [group['id'] for group in _enchant_groups() if group['id'] not in current]
     if candidates:
         current[index] = random.choice(candidates)
+
+
+def seizure_affix_ids(stage_id: int) -> list[int]:
+    """按当日关卡的属性顺序取官方介质攫取三件套增益。
+
+    9201~9208 是八种属性偏移场，9215~9222 是对应的屏蔽无效化，
+    9210 是死徒；客户端只认 ActivityAffixPoolCfg 里的这三个 ID。
+    """
+    stages = challenge_catalog()['seizure']
+    element = stages.index(stage_id) % 8 if stage_id in stages else 0
+    return [9201 + element, 9215 + element, 9210]
+
+
+def next_seizure_affix_refresh() -> int:
+    """下一个周一/周四/周六 05:00，和官服增益轮换一致。"""
+    now = datetime.datetime.now()
+    for offset in range(8):
+        candidate = (now + datetime.timedelta(days=offset)).replace(
+            hour=5, minute=0, second=0, microsecond=0)
+        if candidate > now and candidate.weekday() in (0, 3, 5):
+            return int(candidate.timestamp())
+    return int(now.timestamp()) + 86400
+
+
+def _seizure_effective_dt(now: int | None = None) -> datetime.datetime:
+    """05:00 前仍算前一天，和每日/每期刷新口径一致。"""
+    now = int(time.time()) if now is None else int(now)
+    value = datetime.datetime.fromtimestamp(now)
+    if value.hour < 5:
+        value -= datetime.timedelta(days=1)
+    return value
+
+
+def seizure_week_key(now: int | None = None) -> int:
+    """返回本期开始时间：最近一个周四 05:00（官服周常周四换期）。"""
+    value = _seizure_effective_dt(now)
+    days_since_thursday = (value.weekday() - 3) % 7
+    thursday = (value - datetime.timedelta(days=days_since_thursday)).replace(
+        hour=5, minute=0, second=0, microsecond=0)
+    return int(thursday.timestamp())
+
+
+def next_seizure_week_refresh(now: int | None = None) -> int:
+    """下一个周四 05:00；官服介质攫取页面底部按这个周期刷新。"""
+    return seizure_week_key(now) + 7 * 86400
+
+
+def seizure_challenge_rate(now: int | None = None) -> float:
+    """周六/周日 05:00 后 1.2 倍，其余时间 1.0 倍。"""
+    return 1.2 if _seizure_effective_dt(now).weekday() in (5, 6) else 1.0
+
+
+def seizure_rewards() -> list:
+    """读取客户端介质攫取积分奖励档位，避免硬编码分数和道具。"""
+    return read_client_data('''(function()
+        local c=require('EquipSeizurePointRewardCfg')
+        local t={}
+        for _,id in ipairs(c.all) do t[#t+1]=c[id] end
+        return t
+    end)()''')
+
+
+def seizure_state(user: dict, now: int | None = None) -> dict:
+    """惰性重置今日最高分和本期累计分，并返回介质攫取存档。"""
+    now = int(time.time()) if now is None else int(now)
+    state = user.setdefault('equip_seizure', {})
+    state.setdefault('today_max_score', 0)
+    state.setdefault('sum_score', 0)
+    state.setdefault('got_reward_id_list', [])
+    state.setdefault('last_battle_id', 0)
+    state.setdefault('stage_id', 0)
+    day = business_day(now)
+    week = seizure_week_key(now)
+    if state.get('day') != day:
+        state['day'] = day
+        state['today_max_score'] = 0
+    if state.get('week_key') != week:
+        state['week_key'] = week
+        state['sum_score'] = 0
+        state['got_reward_id_list'] = []
+    return state
+
+
+def calc_equip_seizure_score(wave_count: int = 0, enemy_dead: int = 0,
+                             battle_time_ms: int = 0, explicit_score: int = 0,
+                             is_win: bool = False) -> tuple[int, int]:
+    """按官方波次分计算介质攫取基础分。
+
+    官服 42 波未击杀 Boss 的结算为 19,080（周日 1.2 倍），即基础 15,900：
+    每波 300 分，20/30/40 波各追加 1,000/1,100/1,200 分。
+    11 波 3,300、31 波 11,400、39 波 16,560 也都与这个口径吻合。
+    """
+    if explicit_score > 0:
+        return int(explicit_score), 0
+    if wave_count > 0:
+        waves = int(wave_count)
+    elif enemy_dead > 0:
+        if enemy_dead <= 91:
+            waves = max(1, int(round(enemy_dead / 4.8)))
+        else:
+            waves = max(1, int(round(19 + ((enemy_dead - 91) / 20.2) * 5)))
+    elif battle_time_ms > 0:
+        seconds = battle_time_ms / 1000.0 if battle_time_ms > 1000 else float(battle_time_ms)
+        waves = max(1, int(seconds / 15.0))
+    elif is_win:
+        waves = 40
+    else:
+        waves = 1
+    score = waves * 300
+    if waves >= 20:
+        score += 1000
+    if waves >= 30:
+        score += 1100
+    if waves >= 40:
+        score += 1200
+    return min(24000, max(200, score)), waves
+
+
+def seizure_wave_count(info: dict) -> int:
+    """从原生战斗报告读取到达波次。
+
+    14 号记录是关卡信息，第 2 项 42 是本关总波次，不是玩家到达波次；
+    15 号记录的第 2 项才是玩家实际到达波次（例如 39）。
+    若 15 号缺失，才退回用 14 号，并用总波次做上限。
+    """
+    if not isinstance(info, dict):
+        return 0
+
+    def _int_at(key):
+        values = info.get(key)
+        if isinstance(values, (list, tuple)) and len(values) >= 2:
+            try:
+                return int(values[1])
+            except (TypeError, ValueError):
+                return 0
+        return 0
+
+    total = _int_at('14')
+    reached = _int_at('15')
+    if reached > 0:
+        # 通关瞬间客户端可能上报“总波次+1”，用关卡总波次封顶。
+        if total > 0 and reached > total:
+            return total
+        if 1 <= reached <= 100:
+            return reached
+    if 0 < total <= 100:
+        return total
+    return 0
+
+
+def settle_equip_seizure(user: dict, battle: dict, result: int | None = None,
+                         info: dict | None = None, now: int | None = None) -> dict:
+    """写入介质攫取分数；今日只累计最高分，本期累计按刷新后的增量增加。"""
+    if not battle or battle.get('common', {}).get('type') != 53:
+        return {}
+    cached = battle.get('seizure_settlement')
+    if cached and cached.get('battle_id') == battle.get('id'):
+        return cached
+    reported = battle.get('reported') or {}
+    result = int(reported.get('result', 0) if result is None else result)
+    if info is None:
+        info = reported.get('info') or {}
+    now = int(time.time()) if now is None else int(now)
+    state = seizure_state(user, now)
+    score = 0
+    waves = 0
+    if result == 1:
+        raw_score, waves = calc_equip_seizure_score(
+            wave_count=seizure_wave_count(info),
+            enemy_dead=int(info.get('11') or 0),
+            battle_time_ms=int(info.get('2') or 0),
+            explicit_score=int(info.get('score') or info.get('point') or 0),
+            is_win=True)
+        score = int(round(raw_score * seizure_challenge_rate(now)))
+        old_today = int(state.get('today_max_score') or 0)
+        state['today_max_score'] = max(old_today, score)
+        state['sum_score'] = int(state.get('sum_score') or 0) + max(0, score - old_today)
+    state['last_battle_id'] = int(battle.get('id') or 0)
+    state['last_score'] = score
+    state['last_battle_time'] = now
+    battle['seizure_settlement'] = {
+        'battle_id': int(battle.get('id') or 0), 'score': score,
+        'raw_score': int(score / seizure_challenge_rate(now)) if score else 0,
+        'est_waves': waves, 'is_valid': result == 1,
+        'today_max_score': int(state.get('today_max_score') or 0),
+        'sum_score': int(state.get('sum_score') or 0),
+        'challenge_rate': seizure_challenge_rate(now),
+    }
+    return battle['seizure_settlement']
+
+
+def restore_equip_seizure_battle(user: dict, now: int | None = None) -> None:
+    """把修复前已打完但未计分的最近一局补写进存档，且同一局只补一次。"""
+    session = user.get('battle_session') or {}
+    if session.get('common', {}).get('type') != 53:
+        return
+    reported = session.get('reported') or {}
+    if reported.get('result') != 1:
+        return
+    state = user.get('equip_seizure') or {}
+    if int(state.get('last_battle_id') or 0) == int(session.get('id') or 0):
+        return
+    finished = (session.get('settlement') or {}).get('battle_result', {}).get('timestamp')
+    finished = int(finished or session.get('started') or now or time.time())
+    if business_day(finished) != business_day(int(time.time()) if now is None else int(now)):
+        return
+    settle_equip_seizure(user, session, now=finished)
+
+
+def seizure_data(user: dict, now: int | None = None) -> dict:
+    """构造 sc_35011，分数和领奖状态全部来自玩家存档而不是常量。"""
+    now = int(time.time()) if now is None else int(now)
+    restore_equip_seizure_battle(user, now)
+    state = seizure_state(user, now)
+    stages = challenge_catalog()['seizure']
+    stage_id = int(state.get('stage_id') or stages[0])
+    state['stage_id'] = stage_id
+    return {
+        'stage_id': stage_id,
+        'challenge_rate': seizure_challenge_rate(now),
+        'affix_info': {'affix_id_list': seizure_affix_ids(stage_id),
+                       'refresh_timestamp': next_seizure_affix_refresh()},
+        'today_max_score': int(state.get('today_max_score') or 0),
+        'sum_score': int(state.get('sum_score') or 0),
+        'got_reward_id_list': [int(value) for value in state.get('got_reward_id_list') or []],
+        'refresh_timestamp': next_seizure_week_refresh(now),
+    }
+
+
+def claim_equip_seizure_rewards(user: dict, id_list: list, now: int | None = None) -> dict:
+    """按当期累计分校验档位并发放奖励，单领和一键领取共用这套逻辑。"""
+    state = seizure_state(user, now)
+    reward_cfg = {int(row['id']): row for row in seizure_rewards()}
+    requested = [int(value) for value in (id_list or []) if value]
+    claimed = {int(value) for value in state.get('got_reward_id_list') or []}
+    totals = {}
+    for reward_id in requested:
+        row = reward_cfg.get(reward_id)
+        if not row or reward_id in claimed:
+            continue
+        if int(state.get('sum_score') or 0) < int(row.get('need') or 0):
+            continue
+        for item, amount in row.get('reward_item_list') or []:
+            item, amount = int(item), int(amount)
+            if item and amount:
+                totals[item] = totals.get(item, 0) + amount
+        claimed.add(reward_id)
+    rewards = [{'id': item, 'num': amount} for item, amount in totals.items()]
+    if rewards:
+        grant_rewards(user, rewards)
+    state['got_reward_id_list'] = sorted(claimed)
+    return {'result': 0, 'reward_list': rewards}
 
 
 def _enchant_state(user: dict, now: int | None = None) -> dict:
