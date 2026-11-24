@@ -353,6 +353,11 @@ def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
     if battle['settlement'] is not None:
         return battle['settlement']
     report = battle['reported']
+    if (report is None and battle['common']['type'] == 52
+            and int(battle['common'].get('dest') or 0) == 3035199):
+        # 1-1 的 3035199 是没有敌人的整备房间，54032 可能不带战斗战果。
+        report = {'result': 1, 'info': {}}
+        battle['reported'] = report
     if report is None:
         raise ValueError('尚未收到战斗结果')
     result = min(report['result'], 3)

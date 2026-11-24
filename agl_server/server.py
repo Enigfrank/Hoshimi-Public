@@ -1012,7 +1012,9 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 values = polyhedron_request(user, cmd, decode_message(cmd, pb_payload))
                 resp_pb = encode_message(resp_cmd, values)
                 data = polyhedron_data(user)
-                resp_before = [(18001, encode_message(18001, data))]
+                # 66038 只设置连携奥义，官服不跟 18001 状态推送；
+                # 多发会把客户端刚开始的挑战流程重置成转圈。
+                resp_before = [] if cmd == 66038 else [(18001, encode_message(18001, data))]
                 if data['game']['state'] == 3:
                     resp_before.append((18005, encode_message(18005, {'end_info': user.get('polyhedron_settlement', {})})))
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in inventory_pushes(user)]
@@ -1576,6 +1578,10 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
         if resp_cmd is not None and resp_pb is not None:
             out = pack_ystcp(resp_cmd, resp_pb, is_compress=0, index=c_idx, server_index=c_idx)
             out = b''.join(pack_ystcp(c, pb, index=0, server_index=0) for c, pb in resp_before) + out
+            # 官服 18010/66038 的应答会连续下发两次（如 sc_18011、sc_66039）。
+            # 客户端开始挑战的回调在部分版本里等第二次应答，补一帧避免一直转圈。
+            if cmd in (18010, 66038):
+                out += pack_ystcp(resp_cmd, resp_pb, is_compress=0, index=c_idx, server_index=c_idx)
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
