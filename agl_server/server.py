@@ -41,7 +41,8 @@ from .gameplay_data import build_gameplay_pushes, passport_data, equip_battle_da
 from .gameplay_protocol import encode_message, decode_message, message_has_field
 from .battle_data import start_battle, settle_battle, start_story
 from .achievement_story import login_story_line, read_achievement_story
-from .challenge_data import (boss_data, enchantment_data, challenge_pushes,
+from .challenge_data import (boss_data, core_data, core_cycle_info, claim_core_rewards,
+                            enchantment_data, challenge_pushes,
                             refresh_enchantment)
 from .battle_udp import BattleUDP
 from .reserve_data import save_reserve, save_battle_team
@@ -1247,6 +1248,25 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 session.user_data = user
             except ValueError as error:
                 print(f'[成就物语拒绝] {error}')
+                resp_pb = encode_message(resp_cmd, {'result': 1})
+        elif cmd == 75006:
+            from copy import deepcopy
+            resp_cmd = 75007
+            try:
+                if not session or not session.user_data:
+                    raise ValueError('未登录')
+                user = deepcopy(session.user_data)
+                request = decode_message(cmd, pb_payload)
+                rows, cycle, next_cycle, end = core_cycle_info()
+                rewards = claim_core_rewards(user, request['reward_list'], rows, cycle)
+                resp_pb = encode_message(resp_cmd, {'result': 0, 'reward_list': rewards})
+                pushes = inventory_pushes(user) + [(75009, core_data(user, (rows, cycle, next_cycle, end)))]
+                resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in pushes]
+                get_user_manager().save_user(user)
+                session.user_data = user
+            except ValueError as error:
+                print(f'[迭代校验领奖拒绝] {error}')
+                resp_extra = None
                 resp_pb = encode_message(resp_cmd, {'result': 1})
         elif cmd == 10200:  # cs_10200 -> sc_10201
             resp_cmd = 10201

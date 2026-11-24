@@ -8,7 +8,7 @@ from .gameplay_protocol import read_client_data
 from .polyhedron_game import polyhedron_data
 from .equip_exploration import exploration_pushes
 from .battle_progress import progress, tower_progress
-from .battle_rewards import spend_items
+from .battle_rewards import spend_items, grant_rewards
 from .server_clock import business_day
 from .activity_periods import period_settings, period_window
 
@@ -315,21 +315,90 @@ def rogue_team_data(user: dict) -> dict:
             'last_id': state.get('last_id', 0)}
 
 
-def core_data(user: dict) -> dict:
-    """按客户端配置顺序轮换迭代校验，预告下期并只恢复当期进度。"""
+@lru_cache(maxsize=1)
+def core_reward_catalog() -> dict:
+    """读取奖励所属周期、奖励道具与客户端条件。"""
+    rows = read_client_data("""(function()
+        local cfg,conditions=require('CoreVerificationRewardCfg'),require('ConditionCfg')
+        local result={}
+        for _,id in ipairs(cfg.all) do
+            local row=cfg[id]
+            local condition=conditions[row.condition]
+            result[#result+1]={id=id,cycle=row.cycle,reward_type=row.reward_type,
+                               kind=condition.type,params=condition.params,rewards=row.reward}
+        end
+        return result
+    end)()""")
+    return {row['id']: row for row in rows}
+
+
+def core_cycle_info() -> tuple[list, int, int, int]:
+    """取得本次请求使用的当期配置、下一期编号和刷新时刻。"""
     rows = challenge_catalog()['core']
     cycles = list(dict.fromkeys(row['cycle'] for row in rows))
     settings = period_settings()
     start, end = period_window('core', settings)
     cfg = settings['core']
-    index = ((start - cfg['anchor']) // (cfg['hours'] * 3600)) % len(cycles)
+    index = ((start - cfg['anchor']) // (end - start)) % len(cycles)
     cycle = cycles[index]
-    return {'now_cycle': cycle, 'next_cycle': cycles[(index + 1) % len(cycles)],
+    return [row for row in rows if row['cycle'] == cycle], cycle, cycles[(index + 1) % len(cycles)], end
+
+
+def core_reward_eligible(task: dict, cleared: dict[int, set[int]]) -> bool:
+    """按条件类型区分周期最高难度和永久奖励要求的指定难度。"""
+    params = task['params']
+    match task['kind']:
+        case 11300:
+            boss, difficulty = params
+            return max(cleared[boss], default=0) >= difficulty
+        case 11302:
+            difficulty = params[0]
+            return all(max(cleared[boss], default=0) >= difficulty for boss in (1, 2))
+        case 11301:
+            return all(params[0] in cleared[boss] for boss in (1, 2))
+        case 11303:
+            boss, difficulty = params
+            return difficulty in cleared[boss]
+    return False
+
+
+def claim_core_rewards(user: dict, reward_ids: list[int], rows: list, cycle: int) -> list[dict]:
+    """校验整批任务后发奖，重复、跨期或未达成请求不会部分发奖。"""
+    if not reward_ids or len(set(reward_ids)) != len(reward_ids):
+        raise ValueError('迭代校验奖励请求为空或有重复任务')
+    catalog = core_reward_catalog()
+    cleared = {1: set(), 2: set()}
+    for row in rows:
+        if progress(user, 67, row['id']).get('clear_times'):
+            cleared[row['boss_type']].add(row['difficult'])
+    state = user.setdefault('core_verification_claimed', {})
+    pending = []
+    rewards = []
+    for task_id in reward_ids:
+        task = catalog.get(task_id)
+        if not task or task['cycle'] not in (0, cycle):
+            raise ValueError('迭代校验奖励不存在或不属于本期')
+        claims = state.setdefault('0' if task['reward_type'] == 4 else str(cycle), [])
+        if task_id in claims or not core_reward_eligible(task, cleared):
+            raise ValueError('迭代校验奖励未达成或已领取')
+        pending.append((claims, task_id))
+        rewards.extend({'id': item, 'num': count} for item, count in task['rewards'])
+    grant_rewards(user, rewards)
+    for claims, task_id in pending:
+        claims.append(task_id)
+    return rewards
+
+
+def core_data(user: dict, period: tuple[list, int, int, int] | None = None) -> dict:
+    """按当前周期下发通关记录、刷新时间和已领奖励。"""
+    rows, cycle, next_cycle, end = core_cycle_info() if period is None else period
+    state = user.get('core_verification_claimed', {})
+    return {'now_cycle': cycle, 'next_cycle': next_cycle,
             'refresh_timestamp': end, 'max_score_info': {},
+            'reward_list': sorted(set(state.get('0', [])) | set(state.get(str(cycle), []))),
             'stage_info': [{'id': row['id'], 'sign': 1,
                             'min_time': progress(user, 67, row['id'])['best_time'] * 1000}
-                           for row in rows if row['cycle'] == cycle
-                           and progress(user, 67, row['id']).get('clear_times')]}
+                           for row in rows if progress(user, 67, row['id']).get('clear_times')]}
 
 
 def challenge_pushes(user: dict) -> list[tuple]:

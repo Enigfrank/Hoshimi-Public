@@ -74,6 +74,9 @@ def reset_period(user: dict, activity: str) -> None:
         user.pop('boss_star_rewards', None)
     elif activity == 'core':
         _reset_core(user)
+        claims = user.get('core_verification_claimed')
+        if claims:
+            user['core_verification_claimed'] = {'0': claims.get('0', [])}
     elif activity == 'polyhedron':
         if user.get('polyhedron'):
             _reset_polyhedron(user)
