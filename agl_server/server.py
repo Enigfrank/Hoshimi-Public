@@ -1213,7 +1213,8 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 resp_pb = encode_message(resp_cmd, values)
                 if cmd == 32044:
                     # 播放语音推进“查看角色语音”任务，立即补发任务面板避免停留在旧进度。
-                    resp_extra = [(28001, encode_message(28001, task_data(user)))]
+                    # resp_extra 必须保持 (指令, 载荷, 帧序号, 延时) 四元组，否则组帧时会解包失败断开连接。
+                    resp_extra = [(28001, encode_message(28001, task_data(user)), 0, 0.0)]
                 if granted or cmd in (32052, 32058):
                     resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in inventory_pushes(user)]
                 if user != session.user_data:
