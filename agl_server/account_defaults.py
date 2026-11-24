@@ -98,12 +98,12 @@ def restore_player_exp(user: dict) -> bool:
 
 
 def add_player_exp(user: dict, amount: int) -> None:
-    """普通新账号通过实际经验成长，升级时发放配置体力，不改旧号模板。"""
+    """普通账号按客户端上限累计经验，升级时发放配置体力。"""
     if user.get('account_template') != 'normal':
         return
     restore_player_exp(user)
     levels = player_levels()
-    total = user.get('total_exp', 0) + amount
+    total = min(user.get('total_exp', 0) + amount, sum(row['exp'] for row in levels[:-1]))
     user['total_exp'] = total
     previous, level = user['level'], 1
     while level < len(levels) and total >= levels[level - 1]['exp']:
