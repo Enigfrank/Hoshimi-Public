@@ -175,7 +175,9 @@ def inventory_pushes(user: dict) -> list[tuple]:
 
 
 def spend_items(user: dict, costs: list[dict]) -> None:
-    """合并并校验全部消耗后扣款，拒绝负数及余额不足。"""
+    """整批校验并扣除消耗，再记录各物品的实际消耗任务进度。"""
+    from .task_progress import update_task_progress
+
     totals = {}
     for cost in costs:
         if cost['num'] <= 0:
@@ -194,3 +196,5 @@ def spend_items(user: dict, costs: list[dict]) -> None:
                 user[core[item]] = value
         else:
             user['materials'][str(item)] -= amount
+    for item, amount in totals.items():
+        update_task_progress(user, 350, amount, item)

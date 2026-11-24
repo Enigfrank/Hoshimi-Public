@@ -4,11 +4,11 @@ from copy import deepcopy
 
 from .battle_progress import progress
 from .battle_rewards import drop_config, roll_drops, grant_rewards
-from .challenge_data import (boss_advance, boss_advance_pool, boss_area,
-                            boss_group_ids, challenge_catalog,
+from .challenge_data import (boss_advance, boss_advance_pool, boss_area, boss_group_ids,
+                            boss_option_ids, challenge_catalog,
                             rogue_score_reward_ids, rogue_selection_catalog)
 
-CHALLENGE_COMMANDS = {44012, 44024, 44026, 44028, 45004, 45006, 45104,
+CHALLENGE_COMMANDS = {44012, 44024, 44026, 44028, 44030, 45004, 45006, 45104,
                       45106, 45108, 45110, 45112, 45204, 55002, 55004, 55006,
                       55012, 55020, 88100, 88316}
 
@@ -41,14 +41,37 @@ def challenge_request(user: dict, command: int, request: dict) -> dict:
         if command == 44024:
             user['mythic_final_difficulty'] = difficulty
         elif command == 44026:
-            user.setdefault('mythic_final_runs', {}).pop(str(difficulty), None)
+            key = str(difficulty)
+            user.setdefault('mythic_final_runs', {}).pop(key, None)
+            resets = user.setdefault('mythic_final_resets', {})
+            resets[key] = resets.get(key, 0) + 1
         else:
-            claimed = user.setdefault('mythic_final_rewards', [])
-            if difficulty in claimed or difficulty not in user.get('mythic_final_cleared', []):
+            claimed = user.get('mythic_final_rewards') or []
+            user['mythic_final_rewards'] = claimed
+            # 通关高等级会同时解锁低等级奖励；官服 clear_list 只记最高档，
+            # 不能要求领取档位必须精确出现在 clear_list 里。
+            max_clear = max((int(x) for x in (user.get('mythic_final_cleared') or [])), default=0)
+            if difficulty in claimed or difficulty > max_clear:
                 raise ValueError('终末黑区未通关或已领取奖励')
             rewards = [{'id': i, 'num': n} for i, n in cfg['reward_list']]
             claimed.append(difficulty)
+            claimed.sort()
             response['item_list'] = rewards
+    elif command == 44030:
+        # 黑区奖励页“一键领取”：领取所有已通关、尚未领取的终末黑区档位。
+        cleared = user.get('mythic_final_cleared') or []
+        claimed = user.get('mythic_final_rewards') or []
+        user['mythic_final_rewards'] = claimed
+        # 通关 30 档等于 1~30 档全部达成；只遍历 clear_list 会漏掉低档奖励。
+        max_clear = max((int(x) for x in cleared), default=0)
+        for cfg in catalog['final']:
+            difficulty = cfg['id']
+            if difficulty > max_clear or difficulty in claimed:
+                continue
+            rewards.extend({'id': i, 'num': n} for i, n in cfg['reward_list'])
+            claimed.append(difficulty)
+        claimed.sort()
+        response['item_list'] = rewards
     elif command in (45004, 45006):
         area = boss_area(user)
         groups = boss_group_ids(user, area)[:area['boss_nums']]
@@ -109,13 +132,14 @@ def challenge_request(user: dict, command: int, request: dict) -> dict:
             pool = next(c for c in catalog['advance_pool'] if c['id'] == group)
             if not 1 <= request['diffculty_index'] <= len(config['monster_value']):
                 raise ValueError('梦境难度无效')
-            # 官服 45101 的 affix_index_list 存的是词缀 ID（如 99400），不是数组下标。
-            for field, choices in (('affix_index_list', pool['affix_pool']), ('time_index_list', pool['time_pool'])):
-                values = request.get(field) or []
-                if len(set(values)) != len(values) or any(value not in choices for value in values):
-                    raise ValueError('梦境词缀选项无效')
-            user.setdefault('boss_affixes', {})[str(group)] = {k: deepcopy(request[k]) for k in
-                ('affix_index_list', 'time_index_list', 'diffculty_index')}
+            affixes = boss_option_ids(request.get('affix_index_list', []), pool['affix_pool'],
+                                     catalog['advance_option_types'])
+            times = boss_option_ids(request.get('time_index_list', []), pool['time_pool'],
+                                   catalog['advance_time_types'])
+            user.setdefault('boss_affixes', {})[str(group)] = {
+                'affix_index_list': affixes, 'time_index_list': times,
+                'diffculty_index': request['diffculty_index'], 'uses_option_ids': True,
+            }
         else:
             heroes = request['heroes_cfg']
             if len(heroes) > 3 or any(h and h not in {x['id'] for x in user['heroes']} for h in heroes):

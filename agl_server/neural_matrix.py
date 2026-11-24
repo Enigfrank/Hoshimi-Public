@@ -1,21 +1,21 @@
-"""第四代神经矩阵：固定一期并发序列、锁队、任务及明确的本地计分。"""
+"""神经矩阵：按周期轮换四期并发序列、锁队、任务及明确的本地计分。"""
 
 from copy import deepcopy
 from functools import lru_cache
 from math import log10
 
+from .activity_periods import NEURAL_ACTIVITY_IDS, neural_period
 from .battle_rewards import grant_rewards
 from .gameplay_protocol import read_client_data
 
-NEURAL_ACTIVITY = 4443304
 NEURAL_COMMANDS = {89802, 89804, 89806}
 
 
-@lru_cache(maxsize=1)
-def neural_catalog() -> dict:
-    """读取当前第四代期次的关卡和奖励条件，不混入前三代或其他期次。"""
+@lru_cache(maxsize=4)
+def neural_catalog(activity_id: int) -> dict:
+    """读取指定期次的关卡和奖励条件。"""
     return read_client_data(f'''(function()
-        local activity=require('ActivityCfg')[{NEURAL_ACTIVITY}]
+        local activity=require('ActivityCfg')[{activity_id}]
         local stageActivity=activity.sub_activity_list[2]
         local stages,rewards,conditions={{}},{{}},{{}}
         local s=require('CoreVerificationClMode4Cfg')
@@ -33,43 +33,50 @@ def neural_catalog() -> dict:
     end)()''')
 
 
-def neural_state(user: dict) -> dict:
-    """恢复本期状态；手动重置只递增局号，不清空已完成任务和本期最高分。"""
+def neural_state(user: dict, period: tuple[int, int] | None = None) -> dict:
+    """恢复本期状态；跨期时清空旧期进度，手动重置只递增局号。"""
     state = user.setdefault('neural_matrix', {})
+    activity_id, start = neural_period() if period is None else period
+    if (state.get('activity_id', NEURAL_ACTIVITY_IDS[-1]) != activity_id
+            or state.get('period_start', start) != start):
+        state.clear()
+    state.update(activity_id=activity_id, period_start=start)
     for key, value in {'stages': {}, 'available': [], 'claimed': [], 'serial': 0,
                        'max_point': 0, 'last_score': 0, 'first_enter': False}.items():
         state.setdefault(key, value)
     return state
 
 
-def neural_stage(stage_id: int) -> dict:
-    """校验关卡属于正在开放的第四代期次。"""
-    row = next((row for row in neural_catalog()['stages'] if row['stage_id'] == stage_id), None)
+def neural_stage(stage_id: int, activity_id: int) -> dict:
+    """校验关卡属于当前开放的期次。"""
+    row = next((row for row in neural_catalog(activity_id)['stages'] if row['stage_id'] == stage_id), None)
     if row is None:
-        raise ValueError('神经矩阵关卡不属于当前第四代期次')
+        raise ValueError('神经矩阵关卡不属于当前期次')
     return row
 
 
 def neural_data(user: dict) -> dict:
     """只下发真实完成的锁队记录，空队伍不伪造成已通关。"""
     state = neural_state(user)
+    catalog = neural_catalog(state['activity_id'])
     return {'common_stages': [
         {'stage_id': cfg['stage_id'], 'common_locks': [
             {'index': int(index), **deepcopy(row)}
             for index, row in sorted(state['stages'].get(str(cfg['stage_id']), {}).items(), key=lambda pair: int(pair[0]))]}
-        for cfg in neural_catalog()['stages']],
+        for cfg in catalog['stages']],
         'finish_assignment_list': [{'assignment_id': row['task_id'],
             'state': 2 if row['task_id'] in state['claimed'] else int(row['task_id'] in state['available'])}
-            for row in neural_catalog()['rewards']],
+            for row in catalog['rewards']],
         'first_enter': state['first_enter'], 'max_point': state['max_point']}
 
 
 def prepare_neural_battle(user: dict, request: dict) -> dict:
-    """校验零起始队号、拥有角色、跨队锁定和第四代允许的战斗选项。"""
+    """校验零起始队号、拥有角色、跨队锁定和当前期次允许的战斗选项。"""
     common = request['common_info']
-    if common.get('activity_id') != NEURAL_ACTIVITY or common.get('battle_times', 1) != 1:
+    period = neural_period()
+    if common.get('activity_id') != period[0] or common.get('battle_times', 1) != 1:
         raise ValueError('神经矩阵期次或战斗倍率无效')
-    cfg = neural_stage(common['dest'])
+    cfg = neural_stage(common['dest'], period[0])
     opts = common.get('opts', [])
     teams = [row['value'] for row in opts if row['key'] == 2]
     if (len({row['key'] for row in opts}) != len(opts)
@@ -83,20 +90,25 @@ def prepare_neural_battle(user: dict, request: dict) -> dict:
     if (not 1 <= len(heroes) <= 3 or len(common['hero_list']) > 3 or len(set(heroes)) != len(heroes)
             or not set(heroes) <= owned or any(row['hero_type'] != 1 for row in selections)):
         raise ValueError('神经矩阵仅允许一至三名不同的已拥有角色')
-    state = neural_state(user)
+    state = neural_state(user, period)
     locked = {hero for stage, teams in state['stages'].items() for team, row in teams.items()
               if (stage, team) != (str(cfg['stage_id']), str(index)) for hero in row['hero_id_list']}
     if locked.intersection(heroes):
         raise ValueError('角色已被神经矩阵其他关卡或队伍锁定')
     state['first_enter'] = True
-    return {'team_index': index, 'serial': state['serial']}
+    return {'team_index': index, 'serial': state['serial'],
+            'period_start': period[1]}
 
 
-def validate_neural_settlement(user: dict, battle: dict) -> None:
-    """手动重置后拒绝旧战斗，包括已经缓存过的旧结算。"""
+def validate_neural_settlement(user: dict, battle: dict, period: tuple[int, int] | None = None) -> None:
+    """手动重置或跨期后拒绝旧战斗，包括已经缓存过的旧结算。"""
     info = battle.get('neural')
-    if not info or info['serial'] != neural_state(user)['serial']:
-        raise ValueError('神经矩阵挑战已重置，请重新进入战斗')
+    current = neural_period() if period is None else period
+    if (not info or battle['common'].get('activity_id') != current[0]
+            or info.get('period_start', battle.get('started', 0)) < current[1]
+            or ('period_start' in info and info['period_start'] != current[1])
+            or info['serial'] != neural_state(user, current)['serial']):
+        raise ValueError('神经矩阵挑战已重置或期次已变化，请重新进入战斗')
 
 
 @lru_cache(maxsize=256)
@@ -118,7 +130,7 @@ def neural_score(battle: dict) -> tuple[int, int, int]:
     if len(actual) != len(expected) or set(actual) != expected or any(row.get('3', 0) <= 0 for row in characters):
         raise ValueError('神经矩阵战报角色与出战队伍不一致')
     seconds = max(0, info['2']) // 1000
-    cfg = neural_stage(battle['common']['dest'])
+    cfg = neural_stage(battle['common']['dest'], battle['common']['activity_id'])
     if cfg['stage_type'] == 1:
         score = max(4000, 5060 - (seconds * seconds + 19) // 20) if result == 1 else 0
         return result, score, seconds
@@ -138,9 +150,11 @@ def neural_score(battle: dict) -> tuple[int, int, int]:
 
 def settle_neural_battle(user: dict, battle: dict) -> int:
     """保存本次锁队与分数，并返回向客户端下发的战斗结果。"""
-    validate_neural_settlement(user, battle)
+    period = neural_period()
+    validate_neural_settlement(user, battle, period)
     result, score, seconds = neural_score(battle)
-    state = neural_state(user)
+    state = neural_state(user, period)
+    catalog = neural_catalog(period[0])
     state['last_score'] = score
     if score:
         stage = str(battle['common']['dest'])
@@ -148,12 +162,12 @@ def settle_neural_battle(user: dict, battle: dict) -> int:
         state['stages'].setdefault(stage, {})[index] = {
             'hero_id_list': [row['hero_id'] for row in battle['common']['hero_list'] if row['hero_id']],
             'cur_value': score, 'seconds': seconds}
-    challenge = sum(row['cur_value'] for cfg in neural_catalog()['stages'] if cfg['stage_type'] == 2
+    challenge = sum(row['cur_value'] for cfg in catalog['stages'] if cfg['stage_type'] == 2
                     for row in state['stages'].get(str(cfg['stage_id']), {}).values())
     current = sum(row['cur_value'] for teams in state['stages'].values() for row in teams.values()) if challenge else 0
     state['max_point'] = max(state['max_point'], current)
-    for row in neural_catalog()['rewards']:
-        condition = neural_catalog()['conditions'][str(row['condition'])]
+    for row in catalog['rewards']:
+        condition = catalog['conditions'][str(row['condition'])]
         teams = state['stages'].get(str(condition['params'][0]), {})
         kind = condition['type']
         achieved = bool(teams) if kind == 11304 else kind == 11307 and sum(team['cur_value'] for team in teams.values()) >= condition['params'][1]
@@ -164,13 +178,15 @@ def settle_neural_battle(user: dict, battle: dict) -> int:
 
 def neural_request(user: dict, command: int, request: dict) -> dict:
     """处理单队／单关／全部重置及原子领奖；重复与跨期请求一律拒绝。"""
-    if request['activity_id'] != NEURAL_ACTIVITY:
+    period = neural_period()
+    if request['activity_id'] != period[0]:
         raise ValueError('神经矩阵期次无效')
-    state = neural_state(user)
+    state = neural_state(user, period)
     state['first_enter'] = True
+    catalog = neural_catalog(state['activity_id'])
     if command == 89804:
         identifiers = request['assignment_id']
-        rewards = {row['task_id']: row for row in neural_catalog()['rewards']}
+        rewards = {row['task_id']: row for row in catalog['rewards']}
         if (not identifiers or len(set(identifiers)) != len(identifiers)
                 or any(i not in rewards or i not in state['available'] or i in state['claimed'] for i in identifiers)):
             raise ValueError('神经矩阵任务未达成、已领取或不属于当前期次')
@@ -180,13 +196,13 @@ def neural_request(user: dict, command: int, request: dict) -> dict:
         return {'result': 0, 'reward_list': gains}
     stage = request['stage_id']
     if command == 89802:
-        cfg = neural_stage(stage)
+        cfg = neural_stage(stage, period[0])
         if not 0 <= request['team_index'] < cfg['stage_team']:
             raise ValueError('神经矩阵队伍索引无效')
         state['stages'].get(str(stage), {}).pop(str(request['team_index']), None)
     elif command == 89806:
         if stage:
-            neural_stage(stage)
+            neural_stage(stage, period[0])
             state['stages'].pop(str(stage), None)
         else:
             state['stages'] = {}
