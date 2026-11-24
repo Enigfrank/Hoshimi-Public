@@ -24,12 +24,13 @@ def challenge_catalog() -> dict:
             return t
         end
         r.mythic=rows('MythicNormalCfg')
-        r.mythic_stages=require('BattleMythicStageCfg').all
+        -- 与官服 44007.superiority_affix_list 对齐：火增伤 10、水增伤 5、硬化 1。
         r.mythic_affixes={}
-        for _,id in ipairs({101,102,103}) do
+        for _,row in ipairs({{412,10,0},{413,5,0},{183,1,3}}) do
+            local id,level,kind=row[1],row[2],row[3]
             local affix=require('AffixTypeCfg')[id]
-            assert(affix and affix.max_level>=1)
-            r.mythic_affixes[#r.mythic_affixes+1]={id=id,level=1,type=0}
+            assert(affix and affix.max_level>=level)
+            r.mythic_affixes[#r.mythic_affixes+1]={id=id,level=level,type=kind}
         end
         r.final=rows('MythicFinalCfg')
         r.boss=rows('BossChallengeCfg')
@@ -401,24 +402,50 @@ def core_data(user: dict, period: tuple[list, int, int, int] | None = None) -> d
                            for row in rows if progress(user, 67, row['id']).get('clear_times')]}
 
 
+def mythic_partition_stage(partition: int) -> int:
+    """把普通黑区主分区和次分区编号映射到战斗关卡 ID。"""
+    if partition < 100:
+        return 3026000 + partition
+    difficulty, section = divmod(partition, 100)
+    return 3027000 + (difficulty - 1) * 3 + section
+
+
+def mythic_final_teams(final: dict) -> list[list[int]]:
+    """按 team_num 还原终末黑区实际队伍；官服 Ω 1-19 为 1 队，20-30 为 2 队。"""
+    team_num = int(final.get('team_num') or 1)
+    groups = [list(group) for group in (final.get('stage_list') or []) if group]
+    if not groups:
+        return []
+    if team_num <= 1:
+        return [[groups[0][0]]]
+    if len(groups) == 1:
+        return [[stage] for stage in groups[0][:team_num]]
+    # 20/25/27/30 的配置有 4 组冗余行，官服 44021 实际下发第二组两关。
+    return [[stage] for stage in groups[1][:team_num]]
+
 def challenge_pushes(user: dict) -> list[tuple]:
     """初始化挑战页面；深阱使用独立的层级及首领持久化状态。"""
     from .abyss import abyss_data
     c = challenge_catalog()
     refresh = int(time.time()) + 7*86400
-    normal = next((x for x in c['mythic'] if x['id'] == user.get('mythic_difficulty', 1)), c['mythic'][0])
+    normal = next((x for x in c['mythic'] if x['id'] == user.get('mythic_difficulty', 1)), None)
     final_id = user.get('mythic_final_difficulty', 1)
     final = next(x for x in c['final'] if x['id'] == final_id)
     runs = user.get('mythic_final_runs', {}).get(str(final_id), {})
     difficulties = []
+    # BattleMythicStageCfg.all 是多个玩法的混合表；黑区本体固定为 3026001..3026013
+    # 主关卡 + 3027001..3027039 子关卡，不能把整张表按难度轮换，否则每个难度都会
+    # 指向同一组 3026001..3026004，客户端按 MythicPartitionCfg 校验时直接报内部错误。
     for x in c['mythic']:
-        stages = c['mythic_stages']
+        main_stage = mythic_partition_stage(x['main_partition'])
+        sub_ids = [mythic_partition_stage(i) for i in x['sub_partition_list']]
         difficulties.append({'difficulty': x['id'],
-                             'main_partition': {'partition': x['main_partition'], 'stage_id': stages[0]},
-                             'sub_partition_list': [{'partition': id, 'stage_id': stages[(i+1) % len(stages)]}
+                             'main_partition': {'partition': x['main_partition'], 'stage_id': main_stage},
+                             'sub_partition_list': [{'partition': id, 'stage_id': sub_ids[i]}
                                                     for i, id in enumerate(x['sub_partition_list'])]})
-    initial = user.get('account_template') == 'normal'
-    unlocked_mythic = ([c['mythic'][0]['id']] if initial else [x['id'] for x in c['mythic']] + [1001])
+    initial = user.get('account_template') == 'normal' and not user.get('official_unlock')
+    unlocked_mythic = ([c['mythic'][0]['id']] if initial else
+                       [1001] + [x['id'] for x in reversed(c['mythic'])])
     unlocked_final = [c['final'][0]['id']] if initial else [x['id'] for x in c['final']]
     return [
         (42001, enchantment_data(user)),
@@ -427,23 +454,32 @@ def challenge_pushes(user: dict) -> list[tuple]:
                  'affix_info': {'refresh_timestamp': refresh}, 'refresh_timestamp': refresh}),
         (41001, tower_progress(user)),
         *boss_data(user),
-        (44007, {'difficulty_list': difficulties, 'superiority_affix_list': c['mythic_affixes'],
+        (44007, {'difficulty_list': difficulties,
+                 'superiority_affix_list': c['mythic_affixes'],
+                 'inferiority_affix_list': [{'id': 127, 'level': 3, 'type': 0},
+                                            {'id': 231, 'level': 1, 'type': 3},
+                                            {'id': 257, 'level': 1, 'type': 3}],
+                 'mythic_ultimate_affix_list': [{'id': 442, 'level': 7, 'type': 0},
+                                                {'id': 9692, 'level': 1, 'type': 0},
+                                                {'id': 9684, 'level': 1, 'type': 3}],
+                 'recommend_team': [2, 3],
                  'next_refresh_timestamp': refresh}),
-        (44009, {'clear_partition_id_list': [int(key.split(':')[1])
-                    for key, value in user.get('battle_progress', {}).items()
-                    if key.startswith('11:') and value.get('clear_times')],
-                 'main_partition_star_list': progress(user, 11, normal['main_partition']).get('stars', []),
-                 'star_reward_provide_list': user.get('mythic_star_rewards', {}).get(str(normal['id']), [])}),
+        (44009, {'clear_partition_id_list': [partition for row in c['mythic']
+                    for partition in (row['main_partition'], *row['sub_partition_list'])
+                    if progress(user, 11, partition).get('clear_times')],
+                 'main_partition_star_list': progress(user, 11, normal['main_partition']).get('stars', []) if normal else [],
+                 'star_reward_provide_list': user.get('mythic_star_rewards', {}).get(str(normal['id']), []) if normal else []}),
         (44019, {'open_difficulty_list': unlocked_mythic,
                  'difficulty': user.get('mythic_difficulty', 1), 'is_new_difficulty': False}),
-        (44021, {'stage_list': [{'difficulty_id': x['id'], 'stage_id': [s[0] for s in x['stage_list']]}
-                               for x in c['final']]}),
+        (44021, {'stage_list': [{'difficulty_id': x['id'],
+                                 'stage_id': [team[0] for team in mythic_final_teams(x)]}
+                                for x in c['final']]}),
         (44023, {'difficulty_id_can_choose': unlocked_final, 'now_difficulty': final_id,
-                 'is_new_difficulty': False, 'receive_reward': user.get('mythic_final_rewards', []),
-                 'clear_list': user.get('mythic_final_cleared', []),
-                 'challenge_info': [{'team_id': i, 'clear_state': int(all(s in runs.get(str(i), {}).get('stages', []) for s in stages)),
-                                     'use_time': runs.get(str(i), {}).get('use_time', 0)}
-                                    for i, stages in enumerate(final['stage_list'], 1)]}),
+                 'is_new_difficulty': False, 'receive_reward': user.get('mythic_final_rewards') or [],
+                 'clear_list': user.get('mythic_final_cleared') or [],
+                 'challenge_info': [{'team_id': i, 'clear_state': int(all(s in runs.get(str(i), {}).get('stages', []) for s in team)),
+                                     'use_time': runs.get(str(i), {}).get('use_time', 0) if team[0] in runs.get(str(i), {}).get('stages', []) else 0}
+                                    for i, team in enumerate(mythic_final_teams(final), 1)]}),
         (55001, abyss_data(user)),
         (75009, core_data(user)),
         (18001, polyhedron_data(user)),
