@@ -40,6 +40,7 @@ from .supply_data import build_supply_goods
 from .gameplay_data import build_gameplay_pushes, passport_data, equip_battle_data, battle_progress_pushes
 from .gameplay_protocol import encode_message, decode_message, message_has_field
 from .battle_data import start_battle, settle_battle, start_story
+from .achievement_story import login_story_line, read_achievement_story
 from .challenge_data import (boss_data, enchantment_data, challenge_pushes,
                             refresh_enchantment)
 from .battle_udp import BattleUDP
@@ -564,6 +565,12 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 (32051, encode_message(32051, {'list': [
                     {'skin_id': i, 'gift_acquire': True} for i in user.get('skin_gifts', [])]}), 0, 0.0),
                 (12001, encode_message(12001, {'story_list': user.get('read_stories', [])}), 0, 0.0),
+                # 成就物语已读列表：客户端登录时用 sc_53001.story_line 初始化
+                # AchievementData.storyReadList_，不下发就会每次登录全部变回红点。
+                (53001, encode_message(53001, {
+                    'achievement_list': [],
+                    'story_line': login_story_line(user),
+                }), 0, 0.0),
                 (12033, encode_message(12033, user.get('birthday', {'month': 0, 'day': 0})), 0, 0.0),
                 (10600, bridge.encode_sc_10600(), 0, 0.0),
                 (24009, encode_message(24009, story_progress(user)), 0, 0.0),
@@ -1231,6 +1238,23 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 user_mgr.save_user(user)
             resp_cmd = 14035
             resp_pb = bridge.encode_sc_14035(result=0 if valid else 1)
+        elif cmd == 53006:
+            from copy import deepcopy
+            resp_cmd = 53007
+            try:
+                if not session or not session.user_data:
+                    raise ValueError('未登录')
+                user = deepcopy(session.user_data)
+                request = decode_message(cmd, pb_payload)
+                values = read_achievement_story(user, request.get('id') or 0)
+                resp_pb = encode_message(resp_cmd, values)
+                get_user_manager().save_user(user)
+                session.user_data = user
+                print(f"[服务端] cs_53006 成就物语已读：id={request.get('id')} 结果={values['result']}")
+            except ValueError as error:
+                print(f'[成就物语拒绝] {error}')
+                resp_extra = None
+                resp_pb = encode_message(resp_cmd, {'result': 1})
         elif cmd == 10200:  # cs_10200 -> sc_10201
             resp_cmd = 10201
             resp_pb = bridge.encode_sc_10201()
