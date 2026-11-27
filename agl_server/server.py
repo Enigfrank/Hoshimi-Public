@@ -145,6 +145,41 @@ GAMECFG_RESPONSE = {
     }
 }
 
+# 头像界面“游戏图标”页签由客户端脚本按 GameToSDK.clientInfo.configS["ICON_CHANGE"] 决定显隐。
+# 元数据取证结论：
+#   - ClientInfo 类型只有两个字段：env（string）与 configS（字典）；
+#   - 游戏侧 GameMain.clientInfo 是该类型的对象，而 SDK 侧 YSSDKCore.YSUtils.clientInfo 是 string，
+#     且 SDK 里有 RequestClientInfoOnline / GetClientInfo 方法 → 服务端下发的是 clientInfo 的 JSON 文本，
+#     SDK 再把它反序列化成 ClientInfo 对象交给 Lua 桥（GameToSDK.clientInfo）。
+#   - gamecfg/getInfo 就是 RequestClientInfoOnline 打的那个请求（服务端日志已确认该请求存在）。
+# 已排除：data.config（列表）、data.configS（挂在 data 上）、data.clientInfo（对象/字符串）、
+#         所有响应统一注入 clientInfo —— 全部无效。原因见下面的反汇编结论。
+EXPERIMENT_ICON_CHANGE = False
+_CLIENT_INFO_TEXT = json.dumps(
+    {"env": "prod", "configS": {"ICON_CHANGE": "true"}}, ensure_ascii=False
+)
+if EXPERIMENT_ICON_CHANGE:
+    GAMECFG_RESPONSE["data"]["clientInfo"] = _CLIENT_INFO_TEXT
+    GATEWAY_RESPONSE["data"]["clientInfo"] = _CLIENT_INFO_TEXT
+
+# --- “游戏图标”页签第二组取证实验（纯服务端） ---------------------------------
+# IL2CPP 反汇编结论（GameAssembly.dll）：
+#   1) GatewayNode.OnUpdate 解析网关配置时只认三个键：
+#      USE_SDK_HOT_FIX / STOP_HOT_FIX_NEW / STOP_HOT_FIX_LOG —— 之前下发的 "STOP_HOT_FIX" 客户端从未读过；
+#   2) 只有 hotFixEnable 为真、且 SDK 分支未跳过时，才会真正去取 clientInfo，
+#      否则走 "pass download gateway info" 分支，直接 new 一个空 ClientInfo；
+#   3) 取 clientInfo 的两个真实地址是：
+#        GatewayNode.RequestClientInfoOnline(): "{uIdInfo.url}/gateway?version={v}&uid={uid}&timestamp={ms}"
+#        ClientMiniNode.RequestDebugUpdateInfo(): "{0}/client_mini.bytes?app={1}&res={2}&v={3}"
+#      —— 都不是 gamecfg/gateway 那些 JSON 字段，所以往响应里塞 clientInfo 一直无效。
+# 本实验：把这两个地址直接应答成 ClientInfo 的 JSON（{env, configS}），同时显式关掉 SDK 热更。
+EXPERIMENT_CLIENT_INFO_FILE = False
+_CLIENT_INFO_JSON = {"env": "prod", "configS": {"ICON_CHANGE": "true"}}
+
+# 临时诊断开关：把 SDK/网关的请求与响应体写进日志，用于确认 clientInfo 到底放在哪份响应里。
+# 查清后把这里改回 False。
+DEBUG_SDK_BODIES = True
+
 NOTICE_RESPONSE = {
     "code": 0,
     "errorCode": "0",
@@ -1604,8 +1639,16 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
 def route_http_response(req_str: str, req_body: bytes = b"", headers: dict = None) -> tuple[bytes, str, int]:
     """分发 SDK、网关和热更新请求，返回响应内容、媒体类型与状态码。"""
     parts = req_str.split(" ")
-    path = parts[1].split("?")[0] if len(parts) > 1 else "/"
-    
+    url = parts[1] if len(parts) > 1 else "/"
+    path = url.split("?")[0] if len(parts) > 1 else "/"
+
+    # 实验：网关/客户端信息下载地址直接应答 ClientInfo JSON。
+    # 注意 "/gateway/get?action=..." 不会命中 "/gateway?"，两者的路径段不同。
+    if EXPERIMENT_CLIENT_INFO_FILE and ("/gateway?" in url or "client_mini" in url):
+        print(f"[clientInfo 下发] {url}")
+        return (json.dumps(_CLIENT_INFO_JSON, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8", 200)
+
     if "/hotfix/" in path or path.endswith(".bytes"):
         filename = Path(path).name
         try:
@@ -1642,7 +1685,14 @@ def route_http_response(req_str: str, req_body: bytes = b"", headers: dict = Non
         resp_obj = sdk_authenticate(req_str, req_body, headers or {}, get_user_manager())
     else:
         resp_obj = {"code": 0, "errorCode": "0", "message": "success", "data": {}}
-        
+
+    # 全量注入试验：把 clientInfo 文本挂到每一份 SDK／网关响应的 data 上，
+    # 用于定位 SDK 到底从哪份响应里取 clientInfo（哪份生效就锁定哪份，再收敛成单点）。
+    if EXPERIMENT_ICON_CHANGE and isinstance(resp_obj, dict):
+        resp_data = resp_obj.get("data")
+        if isinstance(resp_data, dict):
+            resp_data.setdefault("clientInfo", _CLIENT_INFO_TEXT)
+
     return json.dumps(resp_obj, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8", 200
 
 def build_http_response(body_bytes: bytes, content_type: str = "application/json; charset=utf-8", status_code: int = 200, status_text: str = "OK") -> bytes:
@@ -1698,6 +1748,8 @@ async def handle_http_request(reader: asyncio.StreamReader, writer: asyncio.Stre
 
     logged_line = first_line.split('?')[0] if '/mix-sdk-api/pass/oss/' in first_line else first_line
     print(f"[HTTP 请求] {logged_line} (消息体 {len(req_body)} 字节)")
+    if DEBUG_SDK_BODIES and ("sdk-api" in first_line or "gateway/get" in first_line) and req_body:
+        print(f"[SDK 请求体] {logged_line} >>> {req_body[:1500].decode('utf-8', 'replace')}")
     path = first_line.split(' ')[1].split('?')[0]
     from .photo_upload import photo_http_response
     photo = photo_http_response(first_line, req_body, headers, get_user_manager())
@@ -1727,6 +1779,8 @@ async def handle_http_request(reader: asyncio.StreamReader, writer: asyncio.Stre
         resp_body, content_type, status = route_http_response(first_line, req_body, headers)
         status_text = {200: 'OK', 404: 'Not Found'}.get(status, 'Error')
         full_resp = build_http_response(resp_body, content_type, status, status_text)
+        if DEBUG_SDK_BODIES and ("sdk-api" in first_line or "gateway/get" in first_line):
+            print(f"[SDK 响应体] {logged_line} <<< {resp_body[:1500].decode('utf-8', 'replace')}")
     writer.write(full_resp)
     await writer.drain()
 
