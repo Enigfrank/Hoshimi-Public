@@ -31,7 +31,7 @@ def training_catalog() -> dict:
             'weapon_exp_limit','weapon_user_limit','weapon_strengthen_gold_cost','weapon_break_cost',
             'base_exp_weapon_servant','exclusive_skill_talent_num_max','exclusive_skill_use_num_max',
             'exclusive_skill_talent_strengthen_cost','hero_trust_exchange_need',
-            'hero_trust_favor_gift_add_exp','hero_trust_exchange_up_limit',
+            'hero_trust_favor_gift_add_exp','hero_trust_exchange_up_limit','hero_love_exp_gain',
             'weapon_module_break_return','unlock_hero_need','gift_value',
             'hero_anecdote_unlock_condition'}) do r.settings[k]=c[k].value end
         r.settings.love_level_max=require('GameDisplayCfg').hero_love_level_max.value[1]

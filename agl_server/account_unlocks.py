@@ -139,8 +139,18 @@ def unlock_developer(user):
     user['unlock_version'] = 4
 
 
+@lru_cache(maxsize=1)
+def collect_word_ids() -> tuple:
+    """全部世界观词条编号，按客户端 CollectWordCfg.all 的配置顺序固定。"""
+    return tuple(read_client_data("require('CollectWordCfg').all"))
+
+
 def illustrated_data(user):
-    """以真实钥从库存补齐图鉴，个人主页解锁计数与背包保持一致。"""
+    """以真实钥从库存补齐图鉴，个人主页解锁计数与背包保持一致。
+
+     worldview（affix_info）页签的条目由"已收录条目"驱动渲染，收到全部词条编号后
+     页签分组才不会是空白；服务端此前只补 servant_info，所以世界观页一直空着。
+    """
     data = deepcopy(user.get('illustrated', {}))
     rows = data.setdefault('servant_info', [])
     owned = {r['id'] for r in rows}
@@ -148,6 +158,12 @@ def illustrated_data(user):
         if servant['id'] not in owned:
             rows.append({'id': servant['id'], 'is_view': 1})
             owned.add(servant['id'])
+    words = data.setdefault('affix_info', [])
+    known = {r['id'] for r in words}
+    for word_id in collect_word_ids():
+        if word_id not in known:
+            words.append({'id': word_id, 'is_view': 1})
+            known.add(word_id)
     return data
 
 

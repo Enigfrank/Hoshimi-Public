@@ -10,8 +10,8 @@ SWEEP_STAGE_TYPES = (2, 8, 9, 61)
 MAX_SWEEP_TIMES = 10
 
 
-def sweep_battle(user: dict, request: dict) -> tuple[dict, list[tuple]]:
-    """校验扫荡资格，结算允许的关卡并返回前置状态推送。"""
+def sweep_battle(user: dict, request: dict) -> tuple[dict, list[tuple], list[tuple]]:
+    """校验扫荡资格，结算允许的关卡并返回前置状态推送与结算后推送。"""
     common = request['common_info']
     stage_type = common['type']
     if stage_type not in SWEEP_STAGE_TYPES:
@@ -29,6 +29,11 @@ def sweep_battle(user: dict, request: dict) -> tuple[dict, list[tuple]]:
     battle['reported'] = {'result': 1, 'info': {}}
     values = settle_battle(user, battle, battle['id'])
     pushes = []
+    love_pushes = []
+    if battle.get('love_gain'):
+        # 扫荡等同连续多次通关，好感经验在结算响应之后推送，避免被结算界面覆盖。
+        from .hero_affinity import love_exp_pushes
+        love_pushes = love_exp_pushes(user)
     if stage_type == 61:
         times = battle['common']['battle_times']
         if battle_cost(stage)['id'] == 4:
@@ -37,4 +42,4 @@ def sweep_battle(user: dict, request: dict) -> tuple[dict, list[tuple]]:
             scroll_state['clear_stage_list'].append(common['dest'])
         save_activity_pt_scroll_state(user, activity_id, scroll_state)
         pushes.append(activity_pt_scroll_push(user, activity_id))
-    return {**values, **player}, pushes
+    return {**values, **player}, pushes, love_pushes

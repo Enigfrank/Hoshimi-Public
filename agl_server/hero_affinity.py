@@ -34,6 +34,57 @@ def love_max_exp() -> int:
                for i in range(1, catalog['settings']['love_level_max'] + 1))
 
 
+def love_exp_gain() -> int:
+    """单场战斗的好感经验，取值来自客户端 GameSetting。"""
+    values = training_catalog()['settings'].get('hero_love_exp_gain') or []
+    return int(values[0]) if values else 0
+
+
+def archive_by_hero() -> dict[int, int]:
+    """角色编号到共享档案编号的映射，与客户端 GetHeroOntologyID 一致。"""
+    result = {}
+    for key, cfg in training_catalog()['HeroRecordCfg'].items():
+        for hero_id in cfg['hero_id']:
+            result.setdefault(hero_id, int(key))
+    return result
+
+
+def add_battle_love_exp(user: dict, hero_ids: list[int], times: int = 1) -> dict:
+    """战斗胜利按参战角色补发好感经验，档案达上限后不再累计。
+
+    只写实际拥有的角色档案：试用模板解析出的角色未拥有时没有档案行，
+    因此不会凭空生成好感。返回值记入 ``battle['love_gain']``，供结算后推送 14009。
+    """
+    gain = love_exp_gain() * max(1, int(times))
+    if gain <= 0 or not hero_ids:
+        return {}
+    maximum = love_max_exp()
+    archives = {row['archive_id']: row for row in archive_data(user)}
+    owner = archive_by_hero()
+    changed = {}
+    credited = set()
+    for hero_id in sorted({int(i) for i in hero_ids}):
+        archive_id = owner.get(hero_id)
+        if archive_id in credited:
+            continue
+        row = archives.get(archive_id) if archive_id is not None else None
+        if row is None or row['exp'] >= maximum:
+            continue
+        row['exp'] = min(maximum, row['exp'] + gain)
+        credited.add(archive_id)
+        user.setdefault('archives', {})[str(archive_id)] = row
+        changed[archive_id] = row['exp']
+    if not changed:
+        return {}
+    return {'gain': gain, 'archive_ids': sorted(changed)}
+
+
+def love_exp_pushes(user: dict) -> list[tuple]:
+    """结算后刷新角色好感与交心界面数据。"""
+    from .hero_preferences import hero_info_data
+    return [(14009, hero_info_data(user))]
+
+
 def exchange_data(user: dict) -> dict:
     """按业务日恢复礼物置换次数，查询本身不改写账号。"""
     state = user.get('trust_exchange', {})

@@ -130,6 +130,15 @@ def equip_battle_data(user: dict) -> dict:
             "insure_list": [{"difficulty": i, "insure_times": 0} for i in range(1, 7)]}
 
 
+def set_equip_suit(user: dict, request: dict) -> dict:
+    """保存战场清扫的目标刻印套装，只接受客户端配置中的有效套装编号。"""
+    suit = int(request['equip_suit_id'])
+    if suit not in equip_suit_ids():
+        raise ValueError('刻印套装不存在')
+    user['equip_up_suit'] = suit
+    return {'result': 0}
+
+
 def equip_suit_ids() -> list[int]:
     """读取客户端有效刻印套装 ID，用于校验 GM 存档中的旧值。"""
     return client_catalog()["equip_suit_ids"]
@@ -208,6 +217,9 @@ def battle_progress_pushes(user: dict, stage_type: int) -> list[tuple]:
     elif stage_type == 8:
         from .challenge_data import enchantment_data
         data = [(24009, story_progress(user)), (42001, enchantment_data(user))]
+    elif stage_type == 9:
+        # 装备关卡必须回传真实通关次数，客户端据此解锁扫荡键。
+        data = [(24009, story_progress(user))]
     elif stage_type == 2:
         data = [(25009, {'daily_battle_list': [{'id': v['id'], 'clear_times': v['clear_times']}
                  for v in stage_progress(user, 2, catalog['resources'], True)]})]

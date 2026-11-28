@@ -76,8 +76,8 @@ def story_progress(user: dict) -> dict:
                             for i in (1, 2, 3)]
     for key, saved in user.get('battle_progress', {}).items():
         kind, stage_id = map(int, key.split(':'))
-        # 601 与联合特勤 8 需要回传真实通关次数，客户端据此解锁扫荡。
-        if kind in (8, 601):
+        # 601、联合特勤 8 与装备关卡 9 需要回传真实通关次数，客户端据此解锁扫荡。
+        if kind in (8, 9, 601):
             rows.append({'id': stage_id, 'clear_times': saved['clear_times'],
                          'star_list': [int(i in saved.get('stars', [])) for i in (1, 2, 3)]})
     return {'user_chapter_list': rows}

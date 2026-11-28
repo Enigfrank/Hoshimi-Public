@@ -437,7 +437,10 @@ def settle_battle(user: dict, battle: dict, battle_id: int) -> dict:
         progress['best_time'] = min(progress.get('best_time', seconds), seconds)
         progress['last_heroes'] = [h['hero_id'] for h in common['hero_list'] if h['hero_id']]
         from .hero_training_progress import complete_training_battle
-        complete_training_battle(user, battle, times)
+        selected = complete_training_battle(user, battle, times)
+        # 参战角色按实际通关次数累计好感经验，扫荡沿用同一结算路径。
+        from .hero_affinity import add_battle_love_exp
+        battle['love_gain'] = add_battle_love_exp(user, selected, times)
         if common['type'] == 1:
             from .chapter_maps import complete_chapter_stage
             complete_chapter_stage(user, common['dest'])

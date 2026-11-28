@@ -2,11 +2,16 @@
 
 from copy import deepcopy
 from datetime import date
+from functools import lru_cache
 import time
 
 from .gameplay_protocol import decode_message, read_client_data
 from .proto_bridge import get_bridge
 from .skin_scene_data import active_trials, skin_available, usable_skin_catalog
+
+DECORATION_DEFAULT_FIELDS = {'icon_list': 'icon', 'icon_frame_list': 'icon_frame',
+                             'chat_bubble_list': 'chat_bubble',
+                             'information_background_list': 'card_background'}
 
 PROFILE_FIELDS = {
     32012: ('sign', 'sign'), 32014: ('heroes', 'heroes'),
@@ -48,6 +53,32 @@ def switch_poster_girl(user: dict, hero_id: int, previous: int | None = None) ->
     update_task_progress(user, 118)
 
 
+@lru_cache(maxsize=1)
+def decoration_default_ids() -> dict:
+    """读取客户端默认头像、头像框与聊天气泡编号，装扮分页为空时用于兜底。"""
+    return read_client_data('''(function()
+        local c=require('GameSetting')
+        return {icon=c.profile_avatar_default.value[1],
+            icon_frame=c.profile_avatar_frame_default.value[1],
+            chat_bubble=c.profile_chat_bubble_default.value[1]}
+    end)()''')
+
+
+def ensure_decoration_defaults(data: dict) -> dict:
+    """四个装扮分页至少含一张默认条目，避免客户端的页签索引落到空列表。
+
+    默认编号取自客户端设置，名片背景改用响应自身下发的信息背景编号。
+    """
+    defaults = dict(decoration_default_ids())
+    defaults['card_background'] = int(data.get('information_background_id') or 0)
+    for field, key in DECORATION_DEFAULT_FIELDS.items():
+        item = int(defaults.get(key) or 0)
+        rows = data.setdefault(field, [])
+        if item and not any(int(row.get('id', 0)) == item for row in rows):
+            rows.append({'id': item, 'lasted_time': 0, 'obtain_time': 0})
+    return data
+
+
 def profile_data(user: dict) -> dict:
     """以客户端有效默认值补齐名片，再恢复已保存的选择和布局。"""
     result = decode_message(32009, get_bridge().encode_sc_32009(), 'sc')
@@ -79,7 +110,7 @@ def profile_data(user: dict) -> dict:
             result['poster_background_list'].append({'id': scene, 'lasted_time': expiry, 'obtain_time': 0})
     if result['poster_background_id'] not in {row['id'] for row in result['poster_background_list']}:
         result['poster_background_id'] = 6000
-    return result
+    return ensure_decoration_defaults(result)
 
 
 def profile_request(user: dict, command: int, request: dict, rewards: list | None = None) -> dict:

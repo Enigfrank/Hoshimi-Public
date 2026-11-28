@@ -1356,6 +1356,22 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
             user = session.user_data if session else {}
             resp_cmd, resp_pb = 43003, encode_message(43003, {"result": 0})
             resp_extra = [(43001, encode_message(43001, equip_battle_data(user)), 0, 0.0)]
+        elif cmd == 43004:
+            # 战场清扫切换目标刻印套装：只保存合法套装编号，并刷新 43001 选择状态。
+            from .gameplay_data import set_equip_suit
+            resp_cmd = 43005
+            try:
+                if not session or not session.user_data:
+                    raise ValueError('未登录')
+                request = decode_message(cmd, pb_payload)
+                values = set_equip_suit(session.user_data, request)
+                get_user_manager().save_user(session.user_data)
+                resp_pb = encode_message(resp_cmd, values)
+                resp_extra = [(43001, encode_message(43001, equip_battle_data(session.user_data)), 0, 0.0)]
+            except (ValueError, KeyError) as error:
+                print(f'[战场清扫拒绝] {error}')
+                resp_extra = None
+                resp_pb = encode_message(resp_cmd, {'result': 1})
         elif cmd in (42002, 42004):
             from copy import deepcopy
             resp_cmd = 42001 if cmd == 42002 else 42005
@@ -1436,10 +1452,12 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                     raise ValueError('未登录')
                 user = deepcopy(session.user_data)
                 request = decode_message(cmd, pb_payload)
-                values, pushes = sweep_battle(user, request)
+                values, pushes, love_pushes = sweep_battle(user, request)
                 resp_pb = encode_message(resp_cmd, values)
                 resp_before = [(c, encode_message(c, v)) for c, v in pushes]
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in inventory_pushes(user)]
+                # 好感经验放在结算响应之后推送，客户端结算界面才不会把新值盖回旧值。
+                resp_extra += [(c, encode_message(c, v), 0, 0.0) for c, v in love_pushes]
                 stage_type = request['common_info']['type']
                 if stage_type in (2, 8):
                     # 扫荡与普通结算一样刷新对应玩法进度，避免界面保留旧次数。
@@ -1466,6 +1484,10 @@ def handle_tcp_message(opcode: int, flag: int, rpc_id: int, body: bytes, writer=
                 resp_pb = encode_message(resp_cmd, values)
                 resp_extra = [(c, encode_message(c, v), 0, 0.0) for c, v in inventory_pushes(user)]
                 resp_extra += battle_progress_pushes(user, battle['common']['type'])
+                if battle.get('love_gain'):
+                    # 好感只加在参战角色档案上，先刷新角色界面再处理其它玩法推送。
+                    from .hero_affinity import love_exp_pushes
+                    resp_extra += [(c, encode_message(c, v), 0, 0.0) for c, v in love_exp_pushes(user)]
                 if battle['common']['type'] == 1003:
                     # 结算回调立即读取深阱分数和首领阶段，必须先到达客户端。
                     resp_before = [(c, pb) for c, pb, _, _ in resp_extra if c == 55001]

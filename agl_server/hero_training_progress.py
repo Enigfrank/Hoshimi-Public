@@ -76,8 +76,8 @@ def combo_battle_condition(user: dict, battle: dict, condition: dict) -> bool:
     return condition['condition_type'] == 5
 
 
-def complete_training_battle(user: dict, battle: dict, times: int) -> None:
-    """胜利结算仅调用一次；native统计38/39/40的值是完成同调任务的角色ID。"""
+def complete_training_battle(user: dict, battle: dict, times: int) -> list[int]:
+    """胜利结算仅调用一次，返回参战角色；native统计38/39/40的值是完成同调任务的角色ID。"""
     common, info = battle['common'], battle['reported']['info']
     records = dict(zip(info.get('14', []), info.get('15', [])))
     selected = set()
@@ -96,13 +96,14 @@ def complete_training_battle(user: dict, battle: dict, times: int) -> None:
     combo = common.get('cooperate_unique_skill_id', 0)
     cfg = training_catalog()['ComboSkillCfg'].get(str(combo))
     if not cfg or not all(h in selected for h in cfg['cooperate_role_ids']):
-        return
+        return sorted(selected)
     state = user.setdefault('combo_skills', {}).setdefault(str(combo), {'level': 0, 'progress': {}})
     for key, condition in training_catalog()['ComboSkillLevelCfg'].items():
         if (condition['level'] == state['level'] and condition['condition_type'] != 1
                 and combo_battle_condition(user, battle, condition)):
             count = max(0, records.get(12, 0)) if condition['condition_type'] == 5 else times
             state['progress'][key] = min(condition['target'], state['progress'].get(key, 0) + count)
+    return sorted(selected)
 
 
 def training_battle_pushes(user: dict) -> list[tuple]:
